@@ -263,8 +263,7 @@ def maybe_merge_after_inspect_merge(args: argparse.Namespace, segments) -> None:
             should_merge = True
         elif choice in {"f", "frames"}:
             text = input("Frames a excluir (global 5900-6288 o por segmento 7:754-810;8:30,35-40): ").strip()
-            global_text = input("Frames globales a excluir (ej: 7030-7080; Enter = ninguno): ").strip()
-            local_frame_exclusions, global_frame_exclusions = parse_frame_exclusion_inputs(text, global_text)
+            local_frame_exclusions, global_frame_exclusions = parse_frame_exclusion_inputs(text, "")
             prune_choice = input("Podar tambien los archivos originales con backup? [n/s]: ").strip().lower()
             if prune_choice in {"s", "si", "sí", "y", "yes"}:
                 args.prune_originals = True
