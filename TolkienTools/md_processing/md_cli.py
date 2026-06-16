@@ -724,7 +724,7 @@ def merge_population_source(segments, source: str, output: Path, frame_filter: F
             path = segment.path / source
             if not path.exists():
                 continue
-            wrote_blocks, available_blocks = write_population_source_without_initial_block(path, out, segment.index, frame_filter)
+            wrote_blocks, available_blocks = write_population_source_matching_xyz(path, out, segment.index, frame_filter)
             expected_blocks = frame_filter.expected_kept_frames(segment.index)
             if available_blocks != frame_filter.dynamic_frames_by_segment.get(segment.index, 0):
                 print(
@@ -746,31 +746,22 @@ def merge_population_source(segments, source: str, output: Path, frame_filter: F
     return segment_count, block_count
 
 
-def write_population_source_without_initial_block(path: Path, out, segment_index: int, frame_filter: FrameFilter) -> tuple[int, int]:
-    population_blocks = 0
-    dynamic_frame = 0
-    current_block: list[str] = []
+def write_population_source_matching_xyz(path: Path, out, segment_index: int, frame_filter: FrameFilter) -> tuple[int, int]:
+    blocks = split_population_blocks(path)
+    offset = population_initial_block_offset(blocks, segment_index, frame_filter)
     wrote_blocks = 0
-
-    def flush_current_block() -> None:
-        nonlocal wrote_blocks
-        if dynamic_frame >= 1 and frame_filter.keep(segment_index, dynamic_frame):
-            out.writelines(current_block)
+    for dynamic_frame, block in enumerate(blocks[offset:], start=1):
+        if frame_filter.keep(segment_index, dynamic_frame):
+            out.writelines(block)
             wrote_blocks += 1
+    return wrote_blocks, max(len(blocks) - offset, 0)
 
-    with path.open("r", encoding="utf-8", errors="ignore") as fh:
-        for line in fh:
-            stripped = line.strip()
-            if stripped.startswith("#") and "Population Analysis" in stripped:
-                flush_current_block()
-                population_blocks += 1
-                current_block = []
-                if population_blocks >= 2:
-                    dynamic_frame += 1
-            if population_blocks >= 2:
-                current_block.append(line)
-    flush_current_block()
-    return wrote_blocks, dynamic_frame
+
+def population_initial_block_offset(blocks: list[list[str]], segment_index: int, frame_filter: FrameFilter) -> int:
+    xyz_dynamic_frames = frame_filter.dynamic_frames_by_segment.get(segment_index, 0)
+    if len(blocks) == xyz_dynamic_frames + 1:
+        return 1
+    return 0
 
 
 def prune_original_segment_files(
@@ -858,21 +849,18 @@ def prune_original_population(
     if not blocks:
         return 0, 0, 0, path
 
-    kept_blocks: list[list[str]] = []
+    offset = population_initial_block_offset(blocks, segment_index, frame_filter)
+    kept_blocks: list[list[str]] = blocks[:offset]
     removed = 0
-    dynamic_frame = 0
-    for block_index, block in enumerate(blocks):
-        if block_index == 0:
-            kept_blocks.append(block)
-            continue
-        dynamic_frame += 1
+    for dynamic_frame, block in enumerate(blocks[offset:], start=1):
         if frame_filter.keep(segment_index, dynamic_frame):
             kept_blocks.append(block)
         else:
             removed += 1
 
+    available = max(len(blocks) - offset, 0)
     if removed == 0:
-        return 0, max(len(blocks) - 1, 0), max(len(blocks) - 1, 0), path
+        return 0, available, available, path
 
     backup = backup_file(path, backup_suffix)
     tmp_path = path.with_name(f".{path.name}.tmp_prune")
@@ -880,7 +868,7 @@ def prune_original_population(
         for block in kept_blocks:
             out.writelines(block)
     tmp_path.replace(path)
-    return removed, max(len(kept_blocks) - 1, 0), max(len(blocks) - 1, 0), backup
+    return removed, max(len(kept_blocks) - offset, 0), available, backup
 
 
 def split_population_blocks(path: Path) -> list[list[str]]:
