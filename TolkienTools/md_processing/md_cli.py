@@ -81,8 +81,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--exclude-frames",
         default="",
         help=(
-            "Frames dinamicos a excluir dentro de segmentos. "
-            "Formato: SEG:FRAMES separado por ';'. Ej: 7:754-810;8:30,35-40"
+            "Frames dinamicos a excluir. Formato local SEG:FRAMES o global FRAMES, separado por ';'. "
+            "Ej: 7:754-810;8:30,35-40 o 5900-6288"
         ),
     )
     inspect_p.add_argument(
@@ -119,7 +119,7 @@ def build_parser() -> argparse.ArgumentParser:
     merge_xyz_p.add_argument(
         "--exclude-frames",
         default="",
-        help="Frames dinamicos a excluir dentro de segmentos. Ej: 7:754-810;8:30,35-40",
+        help="Frames dinamicos a excluir. Local: 7:754-810; global: 5900-6288",
     )
     merge_xyz_p.add_argument(
         "--exclude-global-frames",
@@ -235,8 +235,10 @@ def cmd_inspect_merge(args: argparse.Namespace) -> None:
 
 def maybe_merge_after_inspect_merge(args: argparse.Namespace, segments) -> None:
     exclude_indexes = parse_segment_selection(args.exclude) if args.exclude else set()
-    local_frame_exclusions = parse_segment_frame_selection(args.exclude_frames) if args.exclude_frames else {}
-    global_frame_exclusions = parse_frame_selection(args.exclude_global_frames) if args.exclude_global_frames else set()
+    local_frame_exclusions, global_frame_exclusions = parse_frame_exclusion_inputs(
+        args.exclude_frames,
+        args.exclude_global_frames,
+    )
     if args.merge == "no":
         return
     if args.merge == "ask" and not sys.stdin.isatty():
@@ -260,10 +262,9 @@ def maybe_merge_after_inspect_merge(args: argparse.Namespace, segments) -> None:
             exclude_indexes = parse_segment_selection(text)
             should_merge = True
         elif choice in {"f", "frames"}:
-            text = input("Frames a excluir por segmento (ej: 7:754-810;8:30,35-40): ").strip()
-            local_frame_exclusions = parse_segment_frame_selection(text)
+            text = input("Frames a excluir (global 5900-6288 o por segmento 7:754-810;8:30,35-40): ").strip()
             global_text = input("Frames globales a excluir (ej: 7030-7080; Enter = ninguno): ").strip()
-            global_frame_exclusions = parse_frame_selection(global_text)
+            local_frame_exclusions, global_frame_exclusions = parse_frame_exclusion_inputs(text, global_text)
             prune_choice = input("Podar tambien los archivos originales con backup? [n/s]: ").strip().lower()
             if prune_choice in {"s", "si", "sí", "y", "yes"}:
                 args.prune_originals = True
@@ -381,6 +382,35 @@ def parse_segment_frame_selection(text: str) -> dict[int, set[int]]:
     return selections
 
 
+def parse_flexible_frame_selection(text: str) -> tuple[dict[int, set[int]], set[int]]:
+    local_selections: dict[int, set[int]] = {}
+    global_selections: set[int] = set()
+    if not text.strip():
+        return local_selections, global_selections
+    entries = [entry.strip() for entry in text.split(";") if entry.strip()]
+    if not entries and text.strip():
+        entries = [text.strip()]
+    for entry in entries:
+        if ":" not in entry:
+            global_selections.update(parse_frame_selection(entry))
+            continue
+        segment_text, frames_text = entry.split(":", 1)
+        segment_text = segment_text.strip()
+        if not segment_text.isdigit():
+            raise SystemExit(f"Segmento invalido en seleccion de frames: {segment_text}")
+        segment = int(segment_text)
+        if segment < 1:
+            raise SystemExit(f"Segmento invalido en seleccion de frames: {segment_text}")
+        local_selections.setdefault(segment, set()).update(parse_frame_selection(frames_text))
+    return local_selections, global_selections
+
+
+def parse_frame_exclusion_inputs(frame_text: str, global_frame_text: str) -> tuple[dict[int, set[int]], set[int]]:
+    local_exclusions, global_exclusions = parse_flexible_frame_selection(frame_text)
+    global_exclusions.update(parse_frame_selection(global_frame_text) if global_frame_text else set())
+    return local_exclusions, global_exclusions
+
+
 @dataclass
 class FrameFilter:
     excluded_by_segment: dict[int, set[int]]
@@ -496,8 +526,7 @@ def cmd_merge_xyz(args: argparse.Namespace) -> None:
     frame_filter = build_frame_filter(
         segments,
         args.xyz_name,
-        parse_segment_frame_selection(args.exclude_frames) if args.exclude_frames else {},
-        parse_frame_selection(args.exclude_global_frames) if args.exclude_global_frames else set(),
+        *parse_frame_exclusion_inputs(args.exclude_frames, args.exclude_global_frames),
     )
     processed, frames, total_ps = merge_segment_xyz(segments, args.xyz_name, Path(args.out), frame_filter.keep)
     if frames == 0:

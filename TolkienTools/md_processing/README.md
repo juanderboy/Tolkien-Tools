@@ -57,6 +57,13 @@ Para excluir frames globales sobre la trayectoria concatenada mergeable:
 tolkien-tools md inspect-merge --merge yes --exclude-global-frames 7030-7080,9000
 ```
 
+Tambien se puede escribir el rango global directamente en `--exclude-frames` si
+no lleva prefijo de segmento:
+
+```bash
+tolkien-tools md inspect-merge --merge yes --exclude-frames 5900-6288
+```
+
 Las dos formas se pueden combinar entre si y tambien con `--exclude` para
 descartar segmentos completos.
 
