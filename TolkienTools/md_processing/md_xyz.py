@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
+from typing import Callable, Iterable
 
 from md_common import Segment, count_xyz_frames, parse_float
 
@@ -62,6 +62,7 @@ def merge_segment_xyz(
     segments: list[Segment],
     xyz_name: str,
     output_path: Path,
+    keep_frame: Callable[[int, int], bool] | None = None,
 ) -> tuple[int, int, float]:
     total_frames = 0
     processed_segments = 0
@@ -80,6 +81,9 @@ def merge_segment_xyz(
             frame_dt_ps = segment.dt_ps if segment.dt_ps is not None else 1.0
 
             for seg_frame, frame in enumerate(frames, start=1):
+                if keep_frame is not None and not keep_frame(segment.index, seg_frame):
+                    global_time_ps += frame_dt_ps
+                    continue
                 out.write(f"{frame.natoms_line.strip()}\n")
                 out.write(f"segment={segment.index} frame={seg_frame} time_ps={global_time_ps:.9f}\n")
                 for atom_line in frame.atom_lines:

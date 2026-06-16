@@ -12,6 +12,7 @@ import sys
 import tempfile
 import webbrowser
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 from md_common import discover_segments, find_numeric_dirs, parse_d_qm_input
@@ -77,6 +78,22 @@ def build_parser() -> argparse.ArgumentParser:
         help="Segmentos a excluir del merge. Ej: 2,5-7",
     )
     inspect_p.add_argument(
+        "--exclude-frames",
+        default="",
+        help=(
+            "Frames dinamicos a excluir dentro de segmentos. "
+            "Formato: SEG:FRAMES separado por ';'. Ej: 7:754-810;8:30,35-40"
+        ),
+    )
+    inspect_p.add_argument(
+        "--exclude-global-frames",
+        default="",
+        help=(
+            "Frames dinamicos globales a excluir sobre la trayectoria mergeada. "
+            "Ej: 7030 o 7030-7080,9000"
+        ),
+    )
+    inspect_p.add_argument(
         "--pop-sources",
         nargs="+",
         default=list(POPULATION_DEFAULTS),
@@ -84,12 +101,31 @@ def build_parser() -> argparse.ArgumentParser:
     )
     inspect_p.add_argument("--pop-suffix", default="_full.dat", help="Sufijo de salida para cargas/spines consolidados")
     inspect_p.add_argument("--no-pop", action="store_true", help="No consolidar cargas/spines al mergear")
+    inspect_p.add_argument(
+        "--prune-originals",
+        action="store_true",
+        help="Reescribir qm.xyz y poblaciones originales removiendo los frames excluidos, con backups",
+    )
+    inspect_p.add_argument(
+        "--backup-suffix",
+        help="Sufijo para backups al usar --prune-originals. Default: .bak_frames_YYYYmmdd_HHMMSS",
+    )
 
     merge_xyz_p = subparsers.add_parser("merge-xyz", help="Une qm.xyz de carpetas numericas")
     add_root_args(merge_xyz_p)
     merge_xyz_p.add_argument("--xyz-name", default="qm.xyz")
     merge_xyz_p.add_argument("--input-name", default="d_QM.in")
     merge_xyz_p.add_argument("--out", default="qm_completo.xyz")
+    merge_xyz_p.add_argument(
+        "--exclude-frames",
+        default="",
+        help="Frames dinamicos a excluir dentro de segmentos. Ej: 7:754-810;8:30,35-40",
+    )
+    merge_xyz_p.add_argument(
+        "--exclude-global-frames",
+        default="",
+        help="Frames dinamicos globales a excluir sobre la trayectoria mergeada. Ej: 7030-7080",
+    )
 
     geom_p = subparsers.add_parser("geom", help="Analiza distancias, angulos y dihedros en un XYZ multi-frame")
     geom_p.add_argument("xyz", nargs="?", default="qm_completo.xyz", help="Archivo XYZ multi-frame (default: qm_completo.xyz)")
@@ -199,6 +235,8 @@ def cmd_inspect_merge(args: argparse.Namespace) -> None:
 
 def maybe_merge_after_inspect_merge(args: argparse.Namespace, segments) -> None:
     exclude_indexes = parse_segment_selection(args.exclude) if args.exclude else set()
+    local_frame_exclusions = parse_segment_frame_selection(args.exclude_frames) if args.exclude_frames else {}
+    global_frame_exclusions = parse_frame_selection(args.exclude_global_frames) if args.exclude_global_frames else set()
     if args.merge == "no":
         return
     if args.merge == "ask" and not sys.stdin.isatty():
@@ -211,7 +249,8 @@ def maybe_merge_after_inspect_merge(args: argparse.Namespace, segments) -> None:
         print("  Enter/n = no mergear")
         print("  a       = mergear todos los segmentos disponibles")
         print("  e       = mergear excluyendo segmentos")
-        choice = input("Que queres hacer? [n/a/e]: ").strip().lower()
+        print("  f       = mergear excluyendo frames especificos")
+        choice = input("Que queres hacer? [n/a/e/f]: ").strip().lower()
         if choice in {"", "n", "no"}:
             return
         if choice in {"a", "all", "t", "todos", "s", "si", "sí", "y", "yes"}:
@@ -219,6 +258,15 @@ def maybe_merge_after_inspect_merge(args: argparse.Namespace, segments) -> None:
         elif choice in {"e", "exclude", "excluir"}:
             text = input("Segmentos a excluir (ej: 2,5-7): ").strip()
             exclude_indexes = parse_segment_selection(text)
+            should_merge = True
+        elif choice in {"f", "frames"}:
+            text = input("Frames a excluir por segmento (ej: 7:754-810;8:30,35-40): ").strip()
+            local_frame_exclusions = parse_segment_frame_selection(text)
+            global_text = input("Frames globales a excluir (ej: 7030-7080; Enter = ninguno): ").strip()
+            global_frame_exclusions = parse_frame_selection(global_text)
+            prune_choice = input("Podar tambien los archivos originales con backup? [n/s]: ").strip().lower()
+            if prune_choice in {"s", "si", "sí", "y", "yes"}:
+                args.prune_originals = True
             should_merge = True
         else:
             raise SystemExit(f"Opcion invalida para merge: {choice}")
@@ -230,18 +278,35 @@ def maybe_merge_after_inspect_merge(args: argparse.Namespace, segments) -> None:
             print(f"[WARN] Segmentos a excluir no detectados: {', '.join(map(str, missing))}")
         if not selected_segments:
             raise SystemExit("No quedan segmentos para mergear despues de aplicar exclusiones.")
-        processed, frames, total_ps = merge_segment_xyz(selected_segments, args.xyz_name, Path(args.out))
+        frame_filter = build_frame_filter(
+            selected_segments,
+            args.xyz_name,
+            local_frame_exclusions,
+            global_frame_exclusions,
+        )
+        processed, frames, total_ps = merge_segment_xyz(selected_segments, args.xyz_name, Path(args.out), frame_filter.keep)
         if frames == 0:
             raise SystemExit("No se proceso ningun frame. Revisar nombres de archivos y segmentos.")
         print()
         print(f"Segmentos mergeados: {processed}")
         if exclude_indexes:
             print(f"Segmentos excluidos: {', '.join(map(str, sorted(exclude_indexes)))}")
+        if frame_filter.excluded_count:
+            print(f"Frames excluidos: {frame_filter.excluded_count}")
+            print(f"Detalle frames excluidos: {frame_filter.describe()}")
         print(f"Frames totales: {frames}")
         print(f"Tiempo total (ps): {total_ps:.9f}")
         print(f"XYZ combinado: {args.out}")
         if not args.no_pop:
-            merge_populations_after_inspect_merge(selected_segments, args.pop_sources, Path(args.out).parent, args.pop_suffix)
+            merge_populations_after_inspect_merge(
+                selected_segments,
+                args.pop_sources,
+                Path(args.out).parent,
+                args.pop_suffix,
+                frame_filter,
+            )
+        if args.prune_originals:
+            prune_original_segment_files(selected_segments, args.xyz_name, args.pop_sources, frame_filter, args.backup_suffix)
 
 
 def parse_segment_selection(text: str) -> set[int]:
@@ -268,6 +333,143 @@ def parse_segment_selection(text: str) -> set[int]:
     return indexes
 
 
+def parse_frame_selection(text: str) -> set[int]:
+    frames: set[int] = set()
+    if not text.strip():
+        return frames
+    for part in text.split(","):
+        token = part.strip()
+        if not token:
+            continue
+        if "-" in token:
+            left, right = token.split("-", 1)
+            if not left.isdigit() or not right.isdigit():
+                raise SystemExit(f"Seleccion de frames invalida: {token}")
+            start = int(left)
+            end = int(right)
+            if start < 1 or end < 1 or start > end:
+                raise SystemExit(f"Rango de frames invalido: {token}")
+            frames.update(range(start, end + 1))
+        else:
+            if not token.isdigit():
+                raise SystemExit(f"Seleccion de frames invalida: {token}")
+            frame = int(token)
+            if frame < 1:
+                raise SystemExit(f"Frame invalido: {token}")
+            frames.add(frame)
+    return frames
+
+
+def parse_segment_frame_selection(text: str) -> dict[int, set[int]]:
+    selections: dict[int, set[int]] = {}
+    if not text.strip():
+        return selections
+    entries = [entry.strip() for entry in text.split(";") if entry.strip()]
+    if not entries and text.strip():
+        entries = [text.strip()]
+    for entry in entries:
+        if ":" not in entry:
+            raise SystemExit(f"Seleccion de frames por segmento invalida: {entry}")
+        segment_text, frames_text = entry.split(":", 1)
+        segment_text = segment_text.strip()
+        if not segment_text.isdigit():
+            raise SystemExit(f"Segmento invalido en seleccion de frames: {segment_text}")
+        segment = int(segment_text)
+        if segment < 1:
+            raise SystemExit(f"Segmento invalido en seleccion de frames: {segment_text}")
+        selections.setdefault(segment, set()).update(parse_frame_selection(frames_text))
+    return selections
+
+
+@dataclass
+class FrameFilter:
+    excluded_by_segment: dict[int, set[int]]
+    dynamic_frames_by_segment: dict[int, int]
+
+    def keep(self, segment_index: int, local_frame: int) -> bool:
+        return local_frame not in self.excluded_by_segment.get(segment_index, set())
+
+    @property
+    def excluded_count(self) -> int:
+        return sum(len(frames) for frames in self.excluded_by_segment.values())
+
+    def describe(self) -> str:
+        chunks = []
+        for segment in sorted(self.excluded_by_segment):
+            chunks.append(f"{segment}:{format_frame_ranges(self.excluded_by_segment[segment])}")
+        return ";".join(chunks) if chunks else "-"
+
+    def expected_kept_frames(self, segment_index: int) -> int:
+        dynamic_frames = self.dynamic_frames_by_segment.get(segment_index, 0)
+        excluded = self.excluded_by_segment.get(segment_index, set())
+        return dynamic_frames - sum(1 for frame in excluded if 1 <= frame <= dynamic_frames)
+
+
+def build_frame_filter(
+    segments,
+    xyz_name: str,
+    local_exclusions: dict[int, set[int]],
+    global_exclusions: set[int],
+) -> FrameFilter:
+    dynamic_frames_by_segment: dict[int, int] = {}
+    for segment in segments:
+        xyz_path = segment.path / xyz_name
+        if not xyz_path.exists():
+            continue
+        try:
+            _natoms, frame_count = xyz_summary(xyz_path)
+        except ValueError as exc:
+            raise SystemExit(f"No pude leer frames para exclusiones en {xyz_path}: {exc}") from exc
+        dynamic_frames_by_segment[segment.index] = max(frame_count - 1, 0)
+
+    excluded_by_segment: dict[int, set[int]] = {}
+    for segment_index, frames in local_exclusions.items():
+        if segment_index not in dynamic_frames_by_segment:
+            raise SystemExit(f"Segmento {segment_index} no esta disponible para excluir frames.")
+        max_frame = dynamic_frames_by_segment[segment_index]
+        invalid = {frame for frame in frames if frame > max_frame}
+        if invalid:
+            raise SystemExit(
+                f"Frames fuera de rango para segmento {segment_index}: {format_frame_ranges(invalid)}. "
+                f"El segmento tiene {max_frame} frames dinamicos."
+            )
+        excluded_by_segment[segment_index] = set(frames)
+
+    if not global_exclusions:
+        return FrameFilter(excluded_by_segment, dynamic_frames_by_segment)
+
+    remaining_global = set(global_exclusions)
+    global_frame = 1
+    for segment in segments:
+        dynamic_frames = dynamic_frames_by_segment.get(segment.index, 0)
+        for local_frame in range(1, dynamic_frames + 1):
+            if global_frame in global_exclusions:
+                excluded_by_segment.setdefault(segment.index, set()).add(local_frame)
+                remaining_global.discard(global_frame)
+            global_frame += 1
+    if remaining_global:
+        last_frame = global_frame - 1
+        missing = format_frame_ranges(remaining_global)
+        raise SystemExit(f"Frames globales fuera de rango: {missing}. La trayectoria mergeable tiene {last_frame} frames.")
+    return FrameFilter(excluded_by_segment, dynamic_frames_by_segment)
+
+
+def format_frame_ranges(frames: set[int]) -> str:
+    if not frames:
+        return "-"
+    ordered = sorted(frames)
+    ranges = []
+    start = prev = ordered[0]
+    for frame in ordered[1:]:
+        if frame == prev + 1:
+            prev = frame
+            continue
+        ranges.append(f"{start}-{prev}" if start != prev else str(start))
+        start = prev = frame
+    ranges.append(f"{start}-{prev}" if start != prev else str(start))
+    return ",".join(ranges)
+
+
 def segment_frame_state(nstlim: int | None, frames: int | None) -> str:
     if frames is None or nstlim is None:
         return "-"
@@ -291,10 +493,19 @@ def cmd_merge_xyz(args: argparse.Namespace) -> None:
     segments = discover_segments(root, args.input_name)
     if not segments:
         raise SystemExit(f"No se encontraron carpetas numericas en {root}")
-    processed, frames, total_ps = merge_segment_xyz(segments, args.xyz_name, Path(args.out))
+    frame_filter = build_frame_filter(
+        segments,
+        args.xyz_name,
+        parse_segment_frame_selection(args.exclude_frames) if args.exclude_frames else {},
+        parse_frame_selection(args.exclude_global_frames) if args.exclude_global_frames else set(),
+    )
+    processed, frames, total_ps = merge_segment_xyz(segments, args.xyz_name, Path(args.out), frame_filter.keep)
     if frames == 0:
         raise SystemExit("No se proceso ningun frame. Revisar nombres de archivos y segmentos.")
     print(f"Segmentos procesados: {processed}")
+    if frame_filter.excluded_count:
+        print(f"Frames excluidos: {frame_filter.excluded_count}")
+        print(f"Detalle frames excluidos: {frame_filter.describe()}")
     print(f"Frames totales: {frames}")
     print(f"Tiempo total (ps): {total_ps:.9f}")
     print(f"XYZ combinado: {args.out}")
@@ -477,7 +688,13 @@ def open_folder_with_explorer(folder_path: str) -> str:
         return "none"
 
 
-def merge_populations_after_inspect_merge(segments, sources: list[str], out_dir: Path, suffix: str) -> None:
+def merge_populations_after_inspect_merge(
+    segments,
+    sources: list[str],
+    out_dir: Path,
+    suffix: str,
+    frame_filter: FrameFilter,
+) -> None:
     existing_sources = [source for source in sources if any((segment.path / source).exists() for segment in segments)]
     if not existing_sources:
         print("Cargas/spines: no se encontraron archivos para consolidar en los segmentos mergeados.")
@@ -485,48 +702,228 @@ def merge_populations_after_inspect_merge(segments, sources: list[str], out_dir:
 
     print()
     print("Consolidando cargas/spines con la misma seleccion/exclusion del XYZ:")
-    merge_population_sources(segments, existing_sources, out_dir, suffix)
+    merge_population_sources(segments, existing_sources, out_dir, suffix, frame_filter)
 
 
-def merge_population_sources(segments, sources: list[str], out_dir: Path, suffix: str) -> None:
+def merge_population_sources(segments, sources: list[str], out_dir: Path, suffix: str, frame_filter: FrameFilter) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     for source in sources:
         output = out_dir / f"{source}{suffix}"
-        count = merge_population_source(segments, source, output)
-        if count:
-            print(f"{source}: {count} segmentos -> {output}")
+        segment_count, block_count = merge_population_source(segments, source, output, frame_filter)
+        if segment_count:
+            print(f"{source}: {segment_count} segmentos, {block_count} bloques -> {output}")
         else:
             print(f"{source}: no encontrado")
 
 
-def merge_population_source(segments, source: str, output: Path) -> int:
-    count = 0
+def merge_population_source(segments, source: str, output: Path, frame_filter: FrameFilter) -> tuple[int, int]:
+    segment_count = 0
+    block_count = 0
     with output.open("w", encoding="utf-8") as out:
         for segment in segments:
             path = segment.path / source
             if not path.exists():
                 continue
-            if write_population_source_without_initial_block(path, out):
-                count += 1
+            wrote_blocks, available_blocks = write_population_source_without_initial_block(path, out, segment.index, frame_filter)
+            expected_blocks = frame_filter.expected_kept_frames(segment.index)
+            if available_blocks != frame_filter.dynamic_frames_by_segment.get(segment.index, 0):
+                print(
+                    f"[WARN] {source}: segmento {segment.index} tiene {available_blocks} bloques dinamicos "
+                    f"pero el XYZ tiene {frame_filter.dynamic_frames_by_segment.get(segment.index, 0)} frames dinamicos."
+                )
+            if wrote_blocks != expected_blocks:
+                print(
+                    f"[WARN] {source}: segmento {segment.index} escribio {wrote_blocks} bloques "
+                    f"pero se esperaban {expected_blocks} segun el filtro del XYZ."
+                )
+            if wrote_blocks:
+                segment_count += 1
+                block_count += wrote_blocks
                 if not line_ends_with_newline(path):
                     out.write("\n")
-    if count == 0:
+    if segment_count == 0:
         output.unlink(missing_ok=True)
-    return count
+    return segment_count, block_count
 
 
-def write_population_source_without_initial_block(path: Path, out) -> bool:
+def write_population_source_without_initial_block(path: Path, out, segment_index: int, frame_filter: FrameFilter) -> tuple[int, int]:
     population_blocks = 0
-    wrote_line = False
+    dynamic_frame = 0
+    current_block: list[str] = []
+    wrote_blocks = 0
+
+    def flush_current_block() -> None:
+        nonlocal wrote_blocks
+        if dynamic_frame >= 1 and frame_filter.keep(segment_index, dynamic_frame):
+            out.writelines(current_block)
+            wrote_blocks += 1
+
     with path.open("r", encoding="utf-8", errors="ignore") as fh:
         for line in fh:
             stripped = line.strip()
             if stripped.startswith("#") and "Population Analysis" in stripped:
+                flush_current_block()
                 population_blocks += 1
+                current_block = []
+                if population_blocks >= 2:
+                    dynamic_frame += 1
             if population_blocks >= 2:
-                out.write(line)
-                wrote_line = True
-    return wrote_line
+                current_block.append(line)
+    flush_current_block()
+    return wrote_blocks, dynamic_frame
+
+
+def prune_original_segment_files(
+    segments,
+    xyz_name: str,
+    sources: list[str],
+    frame_filter: FrameFilter,
+    backup_suffix: str | None,
+) -> None:
+    if frame_filter.excluded_count == 0:
+        print()
+        print("Podado de originales: no hay frames excluidos para remover.")
+        return
+
+    suffix = backup_suffix or f".bak_frames_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    print()
+    print("Podando archivos originales con backups:")
+    for segment in segments:
+        excluded_frames = frame_filter.excluded_by_segment.get(segment.index, set())
+        if not excluded_frames:
+            continue
+
+        xyz_path = segment.path / xyz_name
+        if xyz_path.exists():
+            removed, remaining, backup = prune_original_xyz(xyz_path, segment.index, frame_filter, suffix)
+            print(f"{xyz_path}: removidos {removed} frames, quedan {remaining}; backup {backup}")
+
+        for source in sources:
+            pop_path = segment.path / source
+            if not pop_path.exists():
+                continue
+            removed, remaining, available, backup = prune_original_population(pop_path, segment.index, frame_filter, suffix)
+            expected_removed = sum(1 for frame in excluded_frames if frame <= available)
+            if removed != len(excluded_frames):
+                missing = sorted(frame for frame in excluded_frames if frame > available)
+                print(
+                    f"[WARN] {pop_path}: se pidio remover {len(excluded_frames)} bloques, "
+                    f"pero solo existen {available} bloques dinamicos; fuera de rango: {format_frame_ranges(set(missing))}."
+                )
+            if removed != expected_removed:
+                print(
+                    f"[WARN] {pop_path}: removidos {removed} bloques, "
+                    f"se esperaban {expected_removed} segun bloques disponibles."
+                )
+            print(f"{pop_path}: removidos {removed} bloques, quedan {remaining}; backup {backup}")
+
+
+def prune_original_xyz(path: Path, segment_index: int, frame_filter: FrameFilter, backup_suffix: str) -> tuple[int, int, Path]:
+    frames = parse_xyz_frames(path)
+    if not frames:
+        return 0, 0, path
+    kept_frames = [frames[0]]
+    removed = 0
+    for local_frame, frame in enumerate(frames[1:], start=1):
+        if frame_filter.keep(segment_index, local_frame):
+            kept_frames.append(frame)
+        else:
+            removed += 1
+    if removed == 0:
+        return 0, max(len(frames) - 1, 0), path
+
+    backup = backup_file(path, backup_suffix)
+    tmp_path = path.with_name(f".{path.name}.tmp_prune")
+    write_xyz_frame_list(tmp_path, kept_frames)
+    tmp_path.replace(path)
+    return removed, max(len(kept_frames) - 1, 0), backup
+
+
+def write_xyz_frame_list(path: Path, frames) -> None:
+    with path.open("w", encoding="utf-8") as out:
+        for frame in frames:
+            out.write(f"{frame.natoms_line.strip()}\n")
+            out.write(f"{frame.comment_line.rstrip()}\n")
+            for atom_line in frame.atom_lines:
+                out.write(f"{atom_line.rstrip()}\n")
+
+
+def prune_original_population(
+    path: Path,
+    segment_index: int,
+    frame_filter: FrameFilter,
+    backup_suffix: str,
+) -> tuple[int, int, int, Path]:
+    blocks = split_population_blocks(path)
+    if not blocks:
+        return 0, 0, 0, path
+
+    kept_blocks: list[list[str]] = []
+    removed = 0
+    dynamic_frame = 0
+    for block_index, block in enumerate(blocks):
+        if block_index == 0:
+            kept_blocks.append(block)
+            continue
+        dynamic_frame += 1
+        if frame_filter.keep(segment_index, dynamic_frame):
+            kept_blocks.append(block)
+        else:
+            removed += 1
+
+    if removed == 0:
+        return 0, max(len(blocks) - 1, 0), max(len(blocks) - 1, 0), path
+
+    backup = backup_file(path, backup_suffix)
+    tmp_path = path.with_name(f".{path.name}.tmp_prune")
+    with tmp_path.open("w", encoding="utf-8") as out:
+        for block in kept_blocks:
+            out.writelines(block)
+    tmp_path.replace(path)
+    return removed, max(len(kept_blocks) - 1, 0), max(len(blocks) - 1, 0), backup
+
+
+def split_population_blocks(path: Path) -> list[list[str]]:
+    blocks: list[list[str]] = []
+    current: list[str] = []
+    preamble: list[str] = []
+    seen_population = False
+    with path.open("r", encoding="utf-8", errors="ignore") as fh:
+        for line in fh:
+            stripped = line.strip()
+            starts_block = stripped.startswith("#") and "Population Analysis" in stripped
+            if starts_block:
+                if current:
+                    blocks.append(current)
+                current = preamble + [line] if not seen_population else [line]
+                preamble = []
+                seen_population = True
+            elif seen_population:
+                current.append(line)
+            else:
+                preamble.append(line)
+    if current:
+        blocks.append(current)
+    elif preamble:
+        blocks.append(preamble)
+    return blocks
+
+
+def backup_file(path: Path, suffix: str) -> Path:
+    backup = unique_backup_path(path, suffix)
+    shutil.copy2(path, backup)
+    return backup
+
+
+def unique_backup_path(path: Path, suffix: str) -> Path:
+    candidate = path.with_name(path.name + suffix)
+    if not candidate.exists():
+        return candidate
+    for index in range(2, 1000):
+        numbered = path.with_name(f"{path.name}{suffix}.{index}")
+        if not numbered.exists():
+            return numbered
+    raise SystemExit(f"No pude elegir un nombre de backup libre para {path}")
 
 
 def line_ends_with_newline(path: Path) -> bool:

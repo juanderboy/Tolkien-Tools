@@ -42,6 +42,39 @@ tolkien-tools md inspect-merge --merge yes --exclude 2,5-7 --out qm_completo.xyz
 tolkien-tools md inspect-merge --merge no
 ```
 
+Tambien se pueden excluir frames dinamicos concretos sin descartar el segmento
+completo. Los indices son 1-based y se cuentan despues de descartar el primer
+bloque inicial de cada `qm.xyz`, igual que en el merge normal. Para excluir
+frames locales dentro de segmentos:
+
+```bash
+tolkien-tools md inspect-merge --merge yes --exclude-frames '7:754-810;8:30,35-40'
+```
+
+Para excluir frames globales sobre la trayectoria concatenada mergeable:
+
+```bash
+tolkien-tools md inspect-merge --merge yes --exclude-global-frames 7030-7080,9000
+```
+
+Las dos formas se pueden combinar entre si y tambien con `--exclude` para
+descartar segmentos completos.
+
+Si se quiere dejar las carpetas originales ya podadas para reprocesar despues
+sin repetir las exclusiones, usar `--prune-originals`. Esto reescribe los
+`qm.xyz` y archivos de poblacion de los segmentos afectados, conservando backups
+con sufijo `.bak_frames_YYYYmmdd_HHMMSS`:
+
+```bash
+tolkien-tools md inspect-merge --merge yes --exclude-frames '7:754-810' --prune-originals
+```
+
+Para elegir un sufijo fijo de backup:
+
+```bash
+tolkien-tools md inspect-merge --merge yes --exclude-frames '7:754-810' --prune-originals --backup-suffix .bak_antes_poda
+```
+
 Cuando `inspect-merge` mergea el XYZ, tambien busca `mulliken`,
 `mulliken_spin`, `lowdin` y `lowdin_spin` en los mismos segmentos seleccionados
 y genera los consolidados correspondientes (`*_full.dat`) junto al XYZ
