@@ -416,6 +416,12 @@ def main():
         else:
             analysis_kinds_to_run = [analysis_kind]
 
+        make_paper_figures = prompt_numbered_choice(
+            "Do you want paper-style figures without legends or axis labels?",
+            [("No", False), ("Yes", True)],
+            default_idx=0
+        )
+
         generated_any = False
         global_summary_entries = []
         for selected_analysis_kind in analysis_kinds_to_run:
@@ -492,6 +498,19 @@ def main():
                 bins_spec=global_bins_spec,
                 percentile=95.0
             )
+            if make_paper_figures:
+                paper_fig_outname = os.path.join(global_dir, f"global_{selected_analysis_kind}_histograms_paper.png")
+                make_global_overlay_hist_figure(
+                    atom_ids,
+                    systems_data,
+                    atom_labels=atom_labels,
+                    analysis_label=get_analysis_display_label(selected_analysis_kind),
+                    spin_axis_label=spin_axis_label,
+                    fig_outname=paper_fig_outname,
+                    bins_spec=global_bins_spec,
+                    percentile=95.0,
+                    annotate=False,
+                )
             global_summary_entries.append(
                 build_global_terminal_summary_entry(
                     get_analysis_display_label(selected_analysis_kind),

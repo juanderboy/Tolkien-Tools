@@ -19,6 +19,7 @@ tolkien-tools md inspect-merge --merge yes --exclude 2,5-7 --out qm_completo.xyz
 tolkien-tools md geom
 tolkien-tools md geom qm_completo.xyz --metric dFeN:distance:9,10
 tolkien-tools md geom qm_completo.xyz --metric FeOOP:heme_oop:auto
+tolkien-tools md geom-compare sistemaA sistemaB sistemaC --metric dFeO
 tolkien-tools md split-nc
 tolkien-tools md split-nc --count 100
 ```
@@ -222,3 +223,48 @@ Si se necesita el valor absoluto sin signo, usar `heme_oop_abs`:
 ```bash
 tolkien-tools md geom qm_completo.xyz --metric FeOOP_abs:heme_oop_abs:auto
 ```
+
+### Comparacion global de metricas geometricas
+
+Despues de correr `geom` en varias carpetas de dinamicas distintas, se pueden
+comparar histogramas de una misma metrica con:
+
+```bash
+tolkien-tools md geom-compare
+```
+
+En modo interactivo detecta subcarpetas con archivos `*_metrics.csv`, pregunta
+que carpetas usar, que parametro comparar y con que binning construir los
+histogramas. El nombre del parametro debe ser la misma etiqueta usada al definir
+la metrica con `geom`, por ejemplo `dFeO`.
+
+Para uso no interactivo:
+
+```bash
+tolkien-tools md geom-compare sistemaA sistemaB sistemaC --metric dFeO
+tolkien-tools md geom-compare sistemaA sistemaB sistemaC --metric 'FeOOP,dFeN,dFeO'
+tolkien-tools md geom-compare sistemaA sistemaB --metric FeOOP --bins 50
+tolkien-tools md geom-compare sistemaA sistemaB --metric FeOOP --bins auto
+tolkien-tools md geom-compare sistemaA sistemaB --metric FeOOP --kde-smooth 4.0
+tolkien-tools md geom-compare sistemaA sistemaB --metric FeOOP --paper-figure yes
+tolkien-tools md geom-compare sistemaA sistemaB --metric FeOOP --no-kde
+tolkien-tools md geom-compare --root comparaciones --metric dFeO
+```
+
+Por default genera los resultados en `geom_global/`:
+
+- `geom_compare_<metrica>_histograms.png`: histogramas superpuestos por sistema.
+- `geom_compare_<metrica>_histograms_paper.png`: version limpia opcional para
+  editar, sin titulo, leyenda, nombres de ejes ni numeros de ejes, pero
+  conservando las marcas de ticks.
+- `geom_compare_<metrica>_values.csv`: valores usados para graficar.
+- `geom_compare_<metrica>_summary.csv`: resumen estadistico por sistema.
+- `geom_compare_<metrica>_kde_modes.csv`: maximos relevantes de las curvas KDE.
+
+Las curvas KDE se dibujan mas suavizadas que el default de SciPy para evitar
+maximos pequenos poco interpretables. El parametro `--kde-smooth` multiplica el
+ancho de banda de Scott: valores mayores dan curvas menos rugosas. El default no
+interactivo es `2.5`; `4.0` es util si se quieren ver solo poblaciones muy
+dominantes. `--kde-prominence` controla que maximos se reportan en
+`*_kde_modes.csv`; el default `0.08` ignora picos con prominencia menor al 8 %
+del maximo de densidad de cada sistema.

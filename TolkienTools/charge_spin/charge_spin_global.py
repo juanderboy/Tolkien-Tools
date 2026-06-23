@@ -273,7 +273,8 @@ def make_global_overlay_hist_figure(
     spin_axis_label=None,
     fig_outname="global_histograms.png",
     bins_spec=50,
-    percentile=95.0
+    percentile=95.0,
+    annotate=True,
 ):
     """
     Generate overlaid charge and spin histograms for multiple systems.
@@ -335,7 +336,7 @@ def make_global_overlay_hist_figure(
                         color=color,
                         edgecolor=color,
                         linewidth=0.6,
-                        label=system_name
+                        label=system_name if annotate else None,
                     )
                     if charges_plot.size > 1 and np.unique(charges_plot).size > 1:
                         xs = np.linspace(charge_xlim[0], charge_xlim[1], 200) if charge_xlim is not None else np.linspace(charges_plot.min(), charges_plot.max(), 200)
@@ -356,7 +357,7 @@ def make_global_overlay_hist_figure(
                         color=color,
                         edgecolor=color,
                         linewidth=0.6,
-                        label=system_name
+                        label=system_name if annotate else None,
                     )
                     if spins_plot.size > 1 and np.unique(spins_plot).size > 1:
                         xs = np.linspace(spin_xlim[0], spin_xlim[1], 200) if spin_xlim is not None else np.linspace(spins_plot.min(), spins_plot.max(), 200)
@@ -367,21 +368,33 @@ def make_global_overlay_hist_figure(
         if has_q:
             if charge_xlim is not None:
                 ax_q.set_xlim(charge_xlim)
-            ax_q.set_ylabel(f"Atom {label}")
-            ax_q.set_xlabel(f"{analysis_label} charge")
-            ax_q.legend(fontsize=8)
+            if annotate:
+                ax_q.set_ylabel(f"Atom {label}")
+                ax_q.set_xlabel(f"{analysis_label} charge")
+                ax_q.legend(fontsize=8)
+            else:
+                ax_q.set_xlabel("")
+                ax_q.set_ylabel("")
+                ax_q.tick_params(labelbottom=False, labelleft=False)
         else:
-            ax_q.text(0.5, 0.5, "No q data", transform=ax_q.transAxes, ha="center", va="center")
+            if annotate:
+                ax_q.text(0.5, 0.5, "No q data", transform=ax_q.transAxes, ha="center", va="center")
             ax_q.set_axis_off()
 
         if has_s:
             if spin_xlim is not None:
                 ax_s.set_xlim(spin_xlim)
-            spin_xlabel = spin_axis_label if spin_axis_label is not None else f"{analysis_label} spin"
-            ax_s.set_xlabel(spin_xlabel)
-            ax_s.legend(fontsize=8)
+            if annotate:
+                spin_xlabel = spin_axis_label if spin_axis_label is not None else f"{analysis_label} spin"
+                ax_s.set_xlabel(spin_xlabel)
+                ax_s.legend(fontsize=8)
+            else:
+                ax_s.set_xlabel("")
+                ax_s.set_ylabel("")
+                ax_s.tick_params(labelbottom=False, labelleft=False)
         else:
-            ax_s.text(0.5, 0.5, "No s data", transform=ax_s.transAxes, ha="center", va="center")
+            if annotate:
+                ax_s.text(0.5, 0.5, "No s data", transform=ax_s.transAxes, ha="center", va="center")
             ax_s.set_axis_off()
 
     plt.tight_layout()

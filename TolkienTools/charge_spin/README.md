@@ -27,6 +27,13 @@ Estructura interna:
 - `charge_spin_viewer.py`: visor HTML de localizacion de spin y geometria.
 - `charge_spin_global.py`: comparaciones globales entre subdirectorios.
 
+En el modo global entre subdirectorios, el programa genera siempre la figura
+normal `global_<analisis>_histograms.png`. Antes de escribir las figuras tambien
+pregunta si se quiere una figura de paper; si se responde que si, agrega
+`global_<analisis>_histograms_paper.png`, una version limpia sin titulos,
+leyendas, nombres de ejes ni numeros de ejes, pero conservando las marcas de
+ticks para editar externamente.
+
 Para poblaciones de spin, el flujo interactivo permite elegir como se arman la
 estadistica, los histogramas y los archivos de salida:
 

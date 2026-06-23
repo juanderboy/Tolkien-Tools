@@ -55,6 +55,10 @@ MD_SUBCOMMANDS = (
         "Generar visor 3D y analizar distancias, angulos y dihedros.",
     ),
     (
+        "geom-compare",
+        "Comparar histogramas de metricas geometricas entre dinamicas.",
+    ),
+    (
         "split-nc",
         "Inspeccionar QM_*.nc fragmentados y generar restarts muestreados.",
     ),

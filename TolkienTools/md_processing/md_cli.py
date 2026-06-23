@@ -14,8 +14,19 @@ import webbrowser
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import Sequence
 
 from md_common import discover_segments, find_numeric_dirs, parse_d_qm_input
+from md_compare import (
+    collect_geom_metric_series,
+    collect_metric_label_map,
+    discover_geom_analysis_dirs,
+    make_geom_overlay_histogram,
+    parse_bins_spec,
+    safe_token,
+    write_geom_compare_summary,
+    write_geom_compare_values,
+)
 from md_geometry import analyze_xyz, parse_metric_spec, parse_scatter_pairs
 from md_viewer import write_xyz_viewer
 from md_xyz import merge_segment_xyz, parse_xyz_frames, xyz_summary
@@ -53,6 +64,7 @@ def build_parser() -> argparse.ArgumentParser:
             "  tolkien-tools md inspect-merge\n"
             "  tolkien-tools md inspect-merge --merge yes --exclude 2,5-7 --out qm_completo.xyz\n"
             "  tolkien-tools md geom --metric dFeN:distance:9,10\n"
+            "  tolkien-tools md geom-compare sistemaA sistemaB sistemaC --metric dFeO\n"
             "  tolkien-tools md split-nc --count 100\n"
         ),
     )
@@ -145,6 +157,62 @@ def build_parser() -> argparse.ArgumentParser:
     geom_p.add_argument("--viewer-backend", choices=["py3dmol", "plotly", "auto"], default="py3dmol", help="Motor del visor 3D")
     geom_p.add_argument("--no-open-viewer", action="store_true", help="No intentar abrir automaticamente el visor HTML")
 
+    geom_compare_p = subparsers.add_parser(
+        "geom-compare",
+        help="Compara histogramas de una metrica geometrica entre varias dinamicas",
+    )
+    add_root_args(geom_compare_p)
+    geom_compare_p.add_argument(
+        "dirs",
+        nargs="*",
+        help="Carpetas de sistemas ya analizados con md geom. Si se omiten, se pregunta interactivamente.",
+    )
+    geom_compare_p.add_argument(
+        "--metric",
+        dest="metric_label",
+        help="Etiqueta(s) a comparar, separadas por coma o espacios. Ej: dFeO o 'FeOOP,dFeN,dFeO'",
+    )
+    geom_compare_p.add_argument(
+        "--metrics-file",
+        help="Nombre exacto del CSV de metricas dentro de cada carpeta. Default: autodetectar *_metrics.csv",
+    )
+    geom_compare_p.add_argument("--output-dir", default="geom_global", help="Carpeta de salida para figura y CSVs")
+    geom_compare_p.add_argument("--out-prefix", default="geom_compare", help="Prefijo del PNG comparativo")
+    geom_compare_p.add_argument(
+        "--bins",
+        help=(
+            "Binning del histograma: entero o fd, auto, sturges, sqrt, rice, doane, scott. "
+            "Si se omite en modo interactivo, se pregunta."
+        ),
+    )
+    geom_compare_p.add_argument(
+        "--percentile",
+        type=float,
+        default=100.0,
+        help="Rango central a graficar para recortar outliers. Default: 100",
+    )
+    geom_compare_p.add_argument("--no-kde", action="store_true", help="No dibujar curvas KDE sobre los histogramas")
+    geom_compare_p.add_argument(
+        "--kde-smooth",
+        type=float,
+        help=(
+            "Factor de suavizado KDE sobre el ancho de banda de Scott. "
+            "Mayor = menos rugosidad. Default interactivo: preguntar; no interactivo: 2.5"
+        ),
+    )
+    geom_compare_p.add_argument(
+        "--kde-prominence",
+        type=float,
+        default=0.08,
+        help="Prominencia relativa minima para reportar modos KDE relevantes. Default: 0.08",
+    )
+    geom_compare_p.add_argument(
+        "--paper-figure",
+        choices=["ask", "yes", "no"],
+        default="ask",
+        help="Generar tambien una figura limpia para editar en paper. Default: preguntar si es interactivo",
+    )
+
     split_p = subparsers.add_parser("split-nc", help="Inspecciona NetCDF fragmentados y extrae rst7 con cpptraj")
     split_p.add_argument("prmtop", nargs="?", help="Topologia AMBER .prmtop; si se omite se busca automaticamente")
     split_p.add_argument("nc_pattern", nargs="?", default="QM_*.nc", help="Patron de NetCDF dentro de carpetas numericas")
@@ -167,7 +235,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def add_root_args(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--root", default=".", help="Carpeta raiz con subcarpetas numericas")
+    parser.add_argument("--root", default=".", help="Carpeta raiz de trabajo")
 
 
 def cmd_inspect_merge(args: argparse.Namespace) -> None:
@@ -569,6 +637,308 @@ def cmd_geom(args: argparse.Namespace) -> None:
         scatter_texts = prompt_scatter_pairs(specs)
     scatter_pairs = parse_scatter_pairs(scatter_texts, specs)
     analyze_xyz(xyz_path, specs, args.output, scatter_pairs, make_plots=not args.no_plots)
+
+
+def cmd_geom_compare(args: argparse.Namespace) -> None:
+    root = Path(args.root)
+    system_dirs = resolve_geom_compare_dirs(root, args.dirs, args.metrics_file)
+    if not system_dirs:
+        raise SystemExit("No se eligio ninguna carpeta para comparar.")
+
+    label_map = collect_metric_label_map(system_dirs, args.metrics_file)
+    metric_labels = resolve_geom_compare_metric_labels(args.metric_label, label_map, len(system_dirs))
+
+    bins_spec = resolve_geom_compare_bins(args.bins)
+    if args.percentile <= 0.0 or args.percentile > 100.0:
+        raise SystemExit("--percentile debe estar en el rango (0, 100].")
+    kde_smooth = resolve_geom_compare_kde_smooth(args.kde_smooth, args.no_kde)
+    if args.kde_prominence < 0.0:
+        raise SystemExit("--kde-prominence debe ser >= 0.")
+    make_paper_figure = resolve_geom_compare_paper_figure(args.paper_figure)
+
+    output_dir = Path(args.output_dir)
+    generated_any = False
+    for metric_label in metric_labels:
+        series, missing = collect_geom_metric_series(system_dirs, metric_label, args.metrics_file)
+        if missing:
+            print("[WARN] Carpetas sin datos para la metrica pedida:")
+            for system_dir, label in missing:
+                print(f"  {system_dir}: {label}")
+        if not series:
+            print(f"[WARN] No se encontraron valores para la metrica {metric_label!r}; se omite.")
+            continue
+
+        figure_path = output_dir / f"{args.out_prefix}_{safe_token(metric_label)}_histograms.png"
+        paper_figure_path = output_dir / f"{args.out_prefix}_{safe_token(metric_label)}_histograms_paper.png"
+        modes_path = output_dir / f"{args.out_prefix}_{safe_token(metric_label)}_kde_modes.csv"
+        values_path = write_geom_compare_values(output_dir, metric_label, series)
+        summary_path = write_geom_compare_summary(output_dir, metric_label, series)
+        make_geom_overlay_histogram(
+            series,
+            metric_label,
+            figure_path,
+            bins_spec=bins_spec,
+            percentile=args.percentile,
+            show_kde=not args.no_kde,
+            kde_smooth=kde_smooth,
+            kde_prominence=args.kde_prominence,
+            modes_path=modes_path,
+        )
+        if make_paper_figure:
+            make_geom_overlay_histogram(
+                series,
+                metric_label,
+                paper_figure_path,
+                bins_spec=bins_spec,
+                percentile=args.percentile,
+                show_kde=not args.no_kde,
+                kde_smooth=kde_smooth,
+                kde_prominence=args.kde_prominence,
+                annotate=False,
+            )
+
+        print()
+        print(f"Metrica comparada: {metric_label}")
+        print("Sistemas incluidos:")
+        for item in series:
+            print(f"  {item.system_name}: {len(item.values)} valores desde {item.metrics_file}")
+        print(f"Figura comparativa: {figure_path}")
+        if make_paper_figure:
+            print(f"Figura paper editable: {paper_figure_path}")
+        print(f"Valores usados: {values_path}")
+        print(f"Resumen estadistico: {summary_path}")
+        if not args.no_kde:
+            print(f"Modos KDE relevantes: {modes_path}")
+        generated_any = True
+
+    if not generated_any:
+        raise SystemExit("No se pudo generar ninguna comparacion con las metricas seleccionadas.")
+
+
+def resolve_geom_compare_dirs(root: Path, dir_args: Sequence[str], metrics_file: str | None) -> list[Path]:
+    if dir_args:
+        dirs = []
+        for text in dir_args:
+            path = Path(text)
+            if not path.is_absolute():
+                path = root / path
+            if not path.is_dir():
+                raise SystemExit(f"No existe la carpeta de sistema: {path}")
+            dirs.append(path)
+        return dirs
+
+    candidates = discover_geom_analysis_dirs(root, metrics_file)
+    if not candidates:
+        raise SystemExit(
+            f"No encontre analisis geom previos en subcarpetas de {root}. "
+            "Esperaba archivos *_metrics.csv generados por 'tolkien-tools md geom'."
+        )
+    if not sys.stdin.isatty():
+        return candidates
+    return prompt_geom_compare_dirs(candidates)
+
+
+def prompt_geom_compare_dirs(candidates: Sequence[Path]) -> list[Path]:
+    print()
+    print("Carpetas con analisis geom detectadas:")
+    for index, path in enumerate(candidates, start=1):
+        print(f"  {index}. {path.name}")
+    print()
+    print("Elegir carpetas a comparar con numeros separados por coma, rangos, o Enter para usar todas.")
+    text = input("Carpetas: ").strip()
+    if not text:
+        return list(candidates)
+    indexes = parse_number_selection(text, len(candidates))
+    return [candidates[index - 1] for index in indexes]
+
+
+def prompt_geom_compare_metric(label_map: dict[str, list[Path]], total_systems: int) -> str:
+    labels = prompt_geom_compare_metrics(label_map, total_systems)
+    if len(labels) != 1:
+        raise SystemExit("Seleccion multiple inesperada.")
+    return labels[0]
+
+
+def resolve_geom_compare_metric_labels(
+    metric_text: str | None,
+    label_map: dict[str, list[Path]],
+    total_systems: int,
+) -> list[str]:
+    if metric_text is None:
+        return prompt_geom_compare_metrics(label_map, total_systems)
+    return parse_geom_compare_metric_selection(metric_text, sorted(label_map), label_map)
+
+
+def prompt_geom_compare_metrics(label_map: dict[str, list[Path]], total_systems: int) -> list[str]:
+    if not label_map:
+        raise SystemExit("No encontre metricas disponibles en los CSV seleccionados.")
+    common_labels = [label for label, dirs in label_map.items() if len(dirs) == total_systems]
+    labels = sorted(common_labels or label_map)
+    print()
+    if common_labels:
+        print("Metricas disponibles en todas las carpetas elegidas:")
+    else:
+        print("No hay metricas comunes a todas las carpetas. Metricas detectadas:")
+    for index, label in enumerate(labels, start=1):
+        count = len(label_map[label])
+        suffix = "" if count == total_systems else f" ({count}/{total_systems} carpetas)"
+        print(f"  {index}. {label}{suffix}")
+    incomplete_labels = [label for label in sorted(label_map) if label not in set(common_labels)]
+    if common_labels and incomplete_labels:
+        print()
+        print("Metricas detectadas pero no presentes en todas las carpetas:")
+        for label in incomplete_labels:
+            dirs = ", ".join(path.name for path in label_map[label])
+            print(f"  {label}: {len(label_map[label])}/{total_systems} carpetas ({dirs})")
+    print()
+    text = input("Parametro/metrica a comparar (numero, nombre o lista separada por coma): ").strip()
+    if not text:
+        raise SystemExit("No se eligio ninguna metrica.")
+    return parse_geom_compare_metric_selection(text, labels, label_map)
+
+
+def parse_geom_compare_metric_selection(text: str, prompt_labels: Sequence[str], label_map: dict[str, list[Path]]) -> list[str]:
+    tokens = [token.strip() for token in re.split(r"[,\s]+", text.strip()) if token.strip()]
+    if not tokens:
+        raise SystemExit("No se eligio ninguna metrica.")
+    selected: list[str] = []
+    for token in tokens:
+        if token.isdigit():
+            index = int(token)
+            if index < 1 or index > len(prompt_labels):
+                raise SystemExit(f"Opcion invalida: {token}")
+            label = prompt_labels[index - 1]
+        else:
+            matches = [label for label in label_map if label.lower() == token.lower()]
+            if not matches:
+                available = ", ".join(prompt_labels)
+                raise SystemExit(f"Metrica desconocida {token!r}. Disponibles: {available}")
+            label = matches[0]
+        if label not in selected:
+            selected.append(label)
+    return selected
+
+
+def resolve_geom_compare_bins(bins_text: str | None) -> str | int:
+    if bins_text is None:
+        if sys.stdin.isatty():
+            return prompt_geom_compare_bins()
+        bins_text = "fd"
+    try:
+        return parse_bins_spec(bins_text)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+
+
+def prompt_geom_compare_bins() -> str | int:
+    print()
+    print("Binning para los histogramas globales:")
+    print("  1. Automatico (Freedman-Diaconis)")
+    print("  2. Automatico (numpy auto)")
+    print("  3. Automatico (Sturges)")
+    print("  4. Cantidad fija de bins")
+    print()
+    choice = input("Elegir binning [1]: ").strip().lower()
+    if choice in {"", "1", "fd", "freedman", "freedman-diaconis"}:
+        return "fd"
+    if choice in {"2", "auto"}:
+        return "auto"
+    if choice in {"3", "sturges"}:
+        return "sturges"
+    if choice in {"4", "fixed", "fijo", "bins"}:
+        text = input("Cantidad de bins: ").strip()
+        try:
+            bins_spec = parse_bins_spec(text)
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from exc
+        if not isinstance(bins_spec, int):
+            raise SystemExit("Para cantidad fija, ingresar un numero entero.")
+        return bins_spec
+    raise SystemExit(f"Opcion de binning invalida: {choice}")
+
+
+def resolve_geom_compare_kde_smooth(kde_smooth: float | None, no_kde: bool) -> float:
+    if no_kde:
+        return 1.0
+    if kde_smooth is None:
+        if sys.stdin.isatty():
+            return prompt_geom_compare_kde_smooth()
+        kde_smooth = 2.5
+    if kde_smooth <= 0.0:
+        raise SystemExit("--kde-smooth debe ser > 0.")
+    return kde_smooth
+
+
+def prompt_geom_compare_kde_smooth() -> float:
+    print()
+    print("Suavizado de curvas KDE:")
+    print("  1. Suave recomendado (2.5)")
+    print("  2. Medio (1.5)")
+    print("  3. Fuerte (4.0)")
+    print("  4. Custom")
+    print()
+    choice = input("Elegir suavizado KDE [1]: ").strip().lower()
+    if choice in {"", "1", "suave", "recomendado"}:
+        return 2.5
+    if choice in {"2", "medio"}:
+        return 1.5
+    if choice in {"3", "fuerte"}:
+        return 4.0
+    if choice in {"4", "custom", "personalizado"}:
+        text = input("Factor KDE (>0; mayor = mas suave): ").strip()
+        try:
+            value = float(text)
+        except ValueError as exc:
+            raise SystemExit(f"Factor KDE invalido: {text}") from exc
+        if value <= 0.0:
+            raise SystemExit("El factor KDE debe ser > 0.")
+        return value
+    raise SystemExit(f"Opcion de suavizado KDE invalida: {choice}")
+
+
+def resolve_geom_compare_paper_figure(choice: str) -> bool:
+    if choice == "yes":
+        return True
+    if choice == "no":
+        return False
+    if sys.stdin.isatty():
+        return prompt_geom_compare_paper_figure()
+    return False
+
+
+def prompt_geom_compare_paper_figure() -> bool:
+    print()
+    text = input("Queres figura de paper sin leyendas ni etiquetas de ejes? [n/s]: ").strip().lower()
+    return text in {"s", "si", "sí", "y", "yes"}
+
+
+def parse_number_selection(text: str, max_index: int) -> list[int]:
+    selected: list[int] = []
+    for part in text.split(","):
+        token = part.strip()
+        if not token:
+            continue
+        if "-" in token:
+            left, right = token.split("-", 1)
+            if not left.isdigit() or not right.isdigit():
+                raise SystemExit(f"Seleccion invalida: {token}")
+            start = int(left)
+            end = int(right)
+            if start > end:
+                raise SystemExit(f"Rango invalido: {token}")
+            indexes = range(start, end + 1)
+        else:
+            if not token.isdigit():
+                raise SystemExit(f"Seleccion invalida: {token}")
+            indexes = [int(token)]
+        for index in indexes:
+            if index < 1 or index > max_index:
+                raise SystemExit(f"Opcion fuera de rango: {index}")
+            if index not in selected:
+                selected.append(index)
+    if not selected:
+        raise SystemExit("No se eligio ninguna carpeta.")
+    return selected
 
 
 def prompt_metric_specs() -> list[str]:
@@ -1375,6 +1745,7 @@ def main(argv: list[str] | None = None) -> None:
         "inspect-merge": cmd_inspect_merge,
         "merge-xyz": cmd_merge_xyz,
         "geom": cmd_geom,
+        "geom-compare": cmd_geom_compare,
         "split-nc": cmd_split_nc,
     }
     commands[args.command](args)
