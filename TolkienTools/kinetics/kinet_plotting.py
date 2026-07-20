@@ -465,9 +465,9 @@ def plot_preprocessed_experiment_preview(
     elif baseline_mode == "points":
         baseline_text += f" last {baseline_points} points"
     if reaction_start_time is None:
-        start_text = "no reaction-start cut"
+        start_text = "time zero = first kept spectrum"
     else:
-        start_text = f"t_start = {reaction_start_time:g}"
+        start_text = f"t >= {reaction_start_time:g}; zero = first kept spectrum"
     if reaction_end_time is None:
         end_text = "no reaction-end cut"
     else:
@@ -577,8 +577,17 @@ def plot_result(
 
     ax_pure = axes["pure"]
     for i, label in enumerate(result.species_labels):
-        linestyle = "--" if label in result.known_species else "-"
-        suffix = " scaled known" if label in result.known_species else ""
+        is_fixed_initial = result.fixed_initial_spectrum and i == 0
+        is_fixed_final = result.fixed_final_spectrum and i == len(result.species_labels) - 1
+        linestyle = "--" if label in result.known_species or is_fixed_initial or is_fixed_final else "-"
+        if is_fixed_initial:
+            suffix = " fixed initial"
+        elif is_fixed_final:
+            suffix = " fixed final"
+        elif label in result.known_species:
+            suffix = " scaled known"
+        else:
+            suffix = ""
         ax_pure.plot(
             experiment.wavelength,
             result.spectra[:, i],
@@ -605,8 +614,11 @@ def plot_result(
             experiment.wavelength,
             result.residuals[:, j],
             color=color,
-            linewidth=0.45,
-            alpha=0.9,
+            marker="o",
+            linestyle="none",
+            markersize=1.8,
+            markeredgewidth=0.0,
+            alpha=0.75,
         )
     ax_residuals.set_xlabel("Wavelength")
     ax_residuals.set_ylabel("Residual absorbance")

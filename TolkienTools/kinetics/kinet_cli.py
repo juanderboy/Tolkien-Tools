@@ -159,50 +159,6 @@ def ask_model_choice(default_model: str) -> str:
 
 
 
-def ask_fit_method_choice(
-    default_method: str,
-    model: str,
-    has_known_spectra: bool = False,
-) -> str:
-    """Ask how pure spectra should be estimated during fitting."""
-    if default_method not in {"nnls", "pinv", "factor"}:
-        raise ValueError(f"Unknown fit method: {default_method}")
-
-    direct_methods = [
-        ("nnls", "NNLS: espectros no negativos E(lambda) >= 0"),
-        ("pinv", "Pseudoinversa: minimos cuadrados sin restricciones"),
-    ]
-    available_methods = direct_methods.copy()
-    if model in {"a_to_b", "a_to_b_to_c", "a_rev_b_to_c"} and not has_known_spectra:
-        available_methods.append(
-            ("factor", "Factor/SVD: ajuste en el espacio de factores")
-        )
-
-    if default_method == "factor" and (
-        has_known_spectra or model not in {"a_to_b", "a_to_b_to_c", "a_rev_b_to_c"}
-    ):
-        default_method = "nnls"
-
-    print()
-    print("Metodo para obtener los espectros puros en cada prueba cinetica:")
-    for i, (key, label) in enumerate(available_methods, start=1):
-        suffix = " [default]" if key == default_method else ""
-        print(f"  {i}. {label}{suffix}")
-
-    choice = input("Elegir metodo? Enter = default: ").strip().lower()
-    if not choice:
-        return default_method
-
-    for i, (key, _) in enumerate(available_methods, start=1):
-        if choice == str(i) or choice == key:
-            return key
-
-    raise ValueError(
-        "Fit method choice must be one of: "
-        + ", ".join(key for key, _ in available_methods)
-    )
-
-
 def print_model_presentation(model: str) -> None:
     """Print a compact description of the selected kinetic model."""
     presentation = MODEL_PRESENTATIONS[model]
@@ -265,6 +221,21 @@ def print_known_spectra_report(known_species: tuple[str, ...], model: str) -> No
     print()
 
 
+def print_initial_spectrum_report(fix_initial_spectrum: bool, model: str) -> None:
+    """Print whether the first model spectrum is fixed from the first data spectrum."""
+    if not fix_initial_spectrum:
+        return
+    first_species = MODEL_SPECIES[model][0]
+    fitted = tuple(label for label in MODEL_SPECIES[model][1:])
+    print(
+        "Initial spectrum fixed: "
+        f"{first_species} uses the first experimental spectrum; "
+        "remaining spectra fitted: "
+        + (", ".join(fitted) if fitted else "none")
+    )
+    print()
+
+
 def allowed_work_range_from_known_spectra(
     known_specs: list[KnownSpectrumSpec],
     experiment: Experiment,
@@ -293,6 +264,37 @@ def print_allowed_work_range_report(work_range: tuple[float, float] | None) -> N
     print()
 
 
+def print_final_spectrum_report(fix_final_spectrum: bool, model: str) -> None:
+    """Print whether the last model spectrum is fixed from the last data spectrum."""
+    if not fix_final_spectrum:
+        return
+    last_species = MODEL_SPECIES[model][-1]
+    fitted = tuple(label for label in MODEL_SPECIES[model][:-1])
+    print(
+        "Final spectrum fixed: "
+        f"{last_species} uses the last experimental spectrum; "
+        "remaining spectra fitted: "
+        + (", ".join(fitted) if fitted else "none")
+    )
+    print()
+
+
+def ask_hss_ratio(default_ratio: float) -> float:
+    """Ask for the initial added HSS-/Mb ratio used by the transsulfuration model."""
+    print()
+    text = input(
+        "Relacion inicial R_HSS = [HSS-]_agregado/[Mb]_0? "
+        f"Enter = {default_ratio:g}: "
+    ).strip()
+    if not text:
+        ratio = default_ratio
+    else:
+        ratio = float(text)
+    if ratio < 0:
+        raise ValueError("R_HSS must be nonnegative")
+    return ratio
+
+
 
 def print_fit_report(
     input_path: Path,
@@ -317,17 +319,32 @@ def print_fit_report(
     print(f"Wavelength range: {experiment.wavelength[0]:g} - {experiment.wavelength[-1]:g}")
     print(f"Time range: {experiment.t[0]:g} - {experiment.t[-1]:g}")
     if reaction_start_time is not None:
-        print(f"reaction start time: {reaction_start_time:g} original time units")
+        print(
+            f"reaction start cutoff: t >= {reaction_start_time:g} original time units"
+        )
+        print("corrected time zero: first kept spectrum")
     if reaction_end_time is not None:
         print(f"reaction end time: {reaction_end_time:g} original time units")
     print(f"c0: {c0:g} M")
     print(f"model: {MODEL_LABELS[model]}")
+    if model == "mbfe3_sulfide_hss_transsulfuration":
+        print(f"R_HSS added: {args.hss_ratio:g}")
     print(f"fit method: {result.method}")
     if result.known_species:
         print("known spectral shapes: " + ", ".join(result.known_species))
     if result.known_spectrum_scales:
         for label, scale in result.known_spectrum_scales.items():
             print(f"known spectrum scale {label}: {scale:.10g}")
+    if result.fixed_initial_spectrum:
+        print(
+            "initial spectrum fixed from first experimental spectrum: "
+            f"{result.species_labels[0]}"
+        )
+    if result.fixed_final_spectrum:
+        print(
+            "final spectrum fixed from last experimental spectrum: "
+            f"{result.species_labels[-1]}"
+        )
     if args.initial_spectrum_weight > 0:
         print(f"initial spectrum weight: {args.initial_spectrum_weight:g}")
     if k_max == args.k_max:
@@ -426,8 +443,8 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=None,
         help=(
-            "Original time where the reaction starts. Spectra with t <= this "
-            "value are discarded and remaining times are shifted by this value."
+            "Original start-time cutoff. Spectra with t >= this value are kept, "
+            "and the first kept spectrum becomes corrected time zero."
         ),
     )
     parser.add_argument(
@@ -452,6 +469,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Override wavelength step when converting KD files",
     )
     parser.add_argument("--c0", type=float, default=1.0, help="Initial concentration in M")
+    parser.add_argument(
+        "--hss-ratio",
+        type=float,
+        default=20.0,
+        help=(
+            "Initial added HSS-/Mb ratio for the MbFeIII-HS/HSS "
+            "transsulfuration special model"
+        ),
+    )
     parser.add_argument(
         "--k-min",
         type=float,
@@ -483,19 +509,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Maximum number of automatic --k-max expansions",
     )
     parser.add_argument(
-        "--components",
-        type=int,
-        default=None,
-        help="Number of SVD components; defaults to the number of model species",
-    )
-    parser.add_argument(
         "--fit-method",
-        choices=("nnls", "pinv", "factor"),
+        choices=("nnls",),
         default="nnls",
-        help=(
-            "nnls enforces nonnegative spectra; pinv uses unconstrained "
-            "pseudoinverse spectra; factor reproduces the MATLAB factor-space fit"
-        ),
+        help="Spectral fitting method. Only nnls is supported.",
     )
     parser.add_argument(
         "--known-spectrum",
@@ -514,6 +531,22 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Softly pull species A toward the first measured spectrum in NNLS. "
             "0 disables it; 1 is roughly one extra time point."
+        ),
+    )
+    parser.add_argument(
+        "--fix-initial-spectrum",
+        action="store_true",
+        help=(
+            "Fix the first species spectrum to the first experimental spectrum "
+            "and fit only the remaining species spectra."
+        ),
+    )
+    parser.add_argument(
+        "--fix-final-spectrum",
+        action="store_true",
+        help=(
+            "Fix the last species spectrum to the last experimental spectrum "
+            "and fit only the remaining species spectra."
         ),
     )
     parser.add_argument(
@@ -547,9 +580,12 @@ def main() -> None:
     experiment = read_experiment(input_path)
 
     model = args.model
-    fit_method = args.fit_method
+    fit_method = "nnls"
     known_specs = parse_known_spectrum_specs(args.known_spectrum)
-    if not args.no_plot and not args.skip_preprocess_dialog:
+    interactive = not args.no_plot and not args.skip_preprocess_dialog
+    fix_initial_spectrum = args.fix_initial_spectrum
+    fix_final_spectrum = args.fix_final_spectrum
+    if interactive:
         print_exploration_message()
         plot_experiment_overview(
             experiment,
@@ -559,21 +595,47 @@ def main() -> None:
         print_model_presentation(model)
         if not known_specs:
             known_specs = ask_known_spectra_choice(model)
-        fit_method = ask_fit_method_choice(
-            args.fit_method,
-            model,
-            has_known_spectra=bool(known_specs),
-        )
     else:
         print_model_presentation(model)
+    if model == "mbfe3_sulfide_hss_transsulfuration" and interactive:
+        args.hss_ratio = ask_hss_ratio(args.hss_ratio)
 
     allowed_work_range = allowed_work_range_from_known_spectra(known_specs, experiment)
     print_allowed_work_range_report(allowed_work_range)
 
-    corrected, work_range, c0, reaction_start_time, reaction_end_time = preprocess_experiment(
+    first_species = MODEL_SPECIES[model][0]
+    last_species = MODEL_SPECIES[model][-1]
+    initial_spectrum_unavailable_reason = None
+    if any(first_species in spec.species for spec in known_specs):
+        initial_spectrum_unavailable_reason = (
+            "El primer espectro del modelo ya fue provisto como espectro conocido "
+            f"({first_species}); no se puede fijar tambien desde el primer espectro experimental."
+        )
+    final_spectrum_unavailable_reason = None
+    if any(last_species in spec.species for spec in known_specs):
+        final_spectrum_unavailable_reason = (
+            "El ultimo espectro del modelo ya fue provisto como espectro conocido "
+            f"({last_species}); no se puede fijar tambien desde el ultimo espectro experimental."
+        )
+
+    (
+        corrected,
+        work_range,
+        c0,
+        reaction_start_time,
+        reaction_end_time,
+        fix_initial_spectrum,
+        fix_final_spectrum,
+    ) = preprocess_experiment(
         args,
         experiment,
         allowed_work_range=allowed_work_range,
+        initial_spectrum_label=first_species if interactive else None,
+        default_fix_initial_spectrum=fix_initial_spectrum,
+        initial_spectrum_unavailable_reason=initial_spectrum_unavailable_reason,
+        final_spectrum_label=last_species if interactive else None,
+        default_fix_final_spectrum=fix_final_spectrum,
+        final_spectrum_unavailable_reason=final_spectrum_unavailable_reason,
     )
     if allowed_work_range is not None:
         print(f"Fit wavelength range selected: {work_range[0]:g}-{work_range[1]:g} nm")
@@ -585,9 +647,9 @@ def main() -> None:
         cropped.wavelength,
     )
     print_known_spectra_report(known_species, model)
-    n_components = args.components
-    if n_components is None:
-        n_components = len(MODEL_SPECIES[model])
+    print_initial_spectrum_report(fix_initial_spectrum, model)
+    print_final_spectrum_report(fix_final_spectrum, model)
+    n_components = len(MODEL_SPECIES[model])
 
     fit_experiment = cropped
     while True:
@@ -604,9 +666,12 @@ def main() -> None:
                 auto_expand=args.auto_expand_k_max,
                 expand_factor=args.k_max_expand_factor,
                 max_expand_steps=args.k_max_expand_steps,
+                hss_ratio=args.hss_ratio,
                 initial_spectrum_weight=args.initial_spectrum_weight,
                 known_spectra=known_spectra,
                 known_species=known_species,
+                fix_initial_spectrum=fix_initial_spectrum,
+                fix_final_spectrum=fix_final_spectrum,
                 progress_callback=progress,
             )
         finally:

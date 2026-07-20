@@ -83,25 +83,35 @@ def drop_spectra(experiment: Experiment, indices: list[int]) -> Experiment:
     )
 
 
+def zero_time_at_first_spectrum(experiment: Experiment) -> Experiment:
+    """Shift times so the first retained spectrum is corrected time zero."""
+    if experiment.t.size == 0:
+        return experiment
+    return Experiment(
+        t=experiment.t - experiment.t[0],
+        wavelength=experiment.wavelength,
+        absorbance=experiment.absorbance,
+    )
+
+
 
 def start_reaction_at_time(
     experiment: Experiment,
     reaction_start_time: float | None,
 ) -> Experiment:
-    """Keep spectra with t > reaction_start_time and shift that time to zero."""
+    """Keep spectra with t >= reaction_start_time."""
     if reaction_start_time is None:
         return experiment
     if not np.isfinite(reaction_start_time):
         raise ValueError("Reaction start time must be finite")
 
-    mask = experiment.t > reaction_start_time
+    mask = experiment.t >= reaction_start_time
     if not np.any(mask):
         raise ValueError(
-            f"Reaction start time {reaction_start_time:g} leaves no spectra with t > t_start"
+            f"Reaction start time {reaction_start_time:g} leaves no spectra with t >= t_start"
         )
-
     return Experiment(
-        t=experiment.t[mask] - reaction_start_time,
+        t=experiment.t[mask],
         wavelength=experiment.wavelength,
         absorbance=experiment.absorbance[:, mask],
     )
@@ -325,6 +335,7 @@ def apply_preprocessing_choices(
     pruned = drop_spectra(experiment, drop_indices)
     pruned = end_reaction_at_time(pruned, reaction_end_time)
     pruned = start_reaction_at_time(pruned, reaction_start_time)
+    pruned = zero_time_at_first_spectrum(pruned)
     if pruned.t.size < 2:
         raise ValueError("Time selection must leave at least two spectra")
     corrected_absorbance, used_region = corrected_absorbance_from_baseline_choice(
@@ -353,10 +364,18 @@ def ask_preprocessing_choices(
     default_reaction_start_time: float | None,
     default_reaction_end_time: float | None,
     allowed_work_range: tuple[float, float] | None = None,
+    initial_spectrum_label: str | None = None,
+    default_fix_initial_spectrum: bool = False,
+    initial_spectrum_unavailable_reason: str | None = None,
+    final_spectrum_label: str | None = None,
+    default_fix_final_spectrum: bool = False,
+    final_spectrum_unavailable_reason: str | None = None,
 ) -> tuple[
     list[int],
     float | None,
     float | None,
+    bool,
+    bool,
     str,
     tuple[float, float] | None,
     int,
@@ -379,7 +398,8 @@ def ask_preprocessing_choices(
         start_default_text = f"{default_reaction_start_time:g}"
     start_text = input(
         "Tiempo de inicio de reaccion? "
-        f"Se usan solo espectros con t > t_inicio. Enter = {start_default_text}: "
+        "Se usan espectros con t >= t_inicio y el primero queda como t=0. "
+        f"Enter = {start_default_text}: "
     )
     reaction_start_time = parse_reaction_start_time_choice(
         start_text,
@@ -400,8 +420,66 @@ def ask_preprocessing_choices(
     )
     dropped = end_reaction_at_time(dropped, reaction_end_time)
     dropped = start_reaction_at_time(dropped, reaction_start_time)
+    first_kept_original_time = float(dropped.t[0]) if dropped.t.size else np.nan
+    dropped = zero_time_at_first_spectrum(dropped)
     if dropped.t.size < 2:
         raise ValueError("Time selection must leave at least two spectra")
+
+    fix_initial_spectrum = default_fix_initial_spectrum
+    fix_final_spectrum = default_fix_final_spectrum
+    if initial_spectrum_label is not None:
+        if initial_spectrum_unavailable_reason is not None:
+            print()
+            print(initial_spectrum_unavailable_reason)
+            fix_initial_spectrum = False
+        else:
+            default_text = "si" if default_fix_initial_spectrum else "no"
+            print()
+            print("Opcion de espectro inicial")
+            print(
+                "Primer espectro despues de la poda temporal: "
+                f"indice 1, t_original = {first_kept_original_time:.6g}, "
+                "t_corregido = 0."
+            )
+            initial_text = input(
+                "Tomar ese primer espectro como espectro fijo del reactivo "
+                f"{initial_spectrum_label} y ajustar solo los restantes? "
+                f"Enter = {default_text}: "
+            ).strip().lower()
+            if not initial_text:
+                fix_initial_spectrum = default_fix_initial_spectrum
+            elif initial_text in {"s", "si", "sí", "y", "yes"}:
+                fix_initial_spectrum = True
+            elif initial_text in {"n", "no"}:
+                fix_initial_spectrum = False
+            else:
+                raise ValueError("Initial spectrum choice must be yes or no")
+    if final_spectrum_label is not None:
+        if final_spectrum_unavailable_reason is not None:
+            print()
+            print(final_spectrum_unavailable_reason)
+            fix_final_spectrum = False
+        else:
+            default_text = "si" if default_fix_final_spectrum else "no"
+            print()
+            print("Opcion de espectro final")
+            print(
+                "Ultimo espectro despues de la poda temporal: "
+                f"indice {dropped.t.size}, t_corregido = {dropped.t[-1]:.6g}."
+            )
+            final_text = input(
+                "Tomar ese ultimo espectro como espectro fijo del producto "
+                f"{final_spectrum_label} y ajustar solo los restantes? "
+                f"Enter = {default_text}: "
+            ).strip().lower()
+            if not final_text:
+                fix_final_spectrum = default_fix_final_spectrum
+            elif final_text in {"s", "si", "sí", "y", "yes"}:
+                fix_final_spectrum = True
+            elif final_text in {"n", "no"}:
+                fix_final_spectrum = False
+            else:
+                raise ValueError("Final spectrum choice must be yes or no")
 
     auto_region = suggest_auto_baseline_region(
         dropped,
@@ -472,6 +550,8 @@ def ask_preprocessing_choices(
         drop_indices,
         reaction_start_time,
         reaction_end_time,
+        fix_initial_spectrum,
+        fix_final_spectrum,
         baseline_mode,
         baseline_region,
         baseline_points,
@@ -485,7 +565,21 @@ def preprocess_experiment(
     args: argparse.Namespace,
     experiment: Experiment,
     allowed_work_range: tuple[float, float] | None = None,
-) -> tuple[Experiment, tuple[float, float], float, float | None, float | None]:
+    initial_spectrum_label: str | None = None,
+    default_fix_initial_spectrum: bool = False,
+    initial_spectrum_unavailable_reason: str | None = None,
+    final_spectrum_label: str | None = None,
+    default_fix_final_spectrum: bool = False,
+    final_spectrum_unavailable_reason: str | None = None,
+) -> tuple[
+    Experiment,
+    tuple[float, float],
+    float,
+    float | None,
+    float | None,
+    bool,
+    bool,
+]:
     """Apply optional spectrum removal and baseline correction."""
     drop_indices = parse_spectrum_selection(args.drop_spectra, experiment.t.size)
     work_range = tuple(sorted((args.lambda_min, args.lambda_max)))
@@ -504,6 +598,8 @@ def preprocess_experiment(
     baseline_points = args.baseline_points
     reaction_start_time = args.reaction_start_time
     reaction_end_time = args.reaction_end_time
+    fix_initial_spectrum = default_fix_initial_spectrum
+    fix_final_spectrum = default_fix_final_spectrum
 
     baseline_region = None
     if args.baseline_lambda_min is not None or args.baseline_lambda_max is not None:
@@ -528,13 +624,23 @@ def preprocess_experiment(
             baseline_points,
             work_range,
         )
-        return corrected, work_range, c0, reaction_start_time, reaction_end_time
+        return (
+            corrected,
+            work_range,
+            c0,
+            reaction_start_time,
+            reaction_end_time,
+            fix_initial_spectrum,
+            fix_final_spectrum,
+        )
 
     while True:
         (
             drop_indices,
             reaction_start_time,
             reaction_end_time,
+            fix_initial_spectrum,
+            fix_final_spectrum,
             baseline_mode,
             baseline_region,
             baseline_points,
@@ -549,6 +655,12 @@ def preprocess_experiment(
             default_reaction_start_time=reaction_start_time,
             default_reaction_end_time=reaction_end_time,
             allowed_work_range=allowed_work_range,
+            initial_spectrum_label=initial_spectrum_label,
+            default_fix_initial_spectrum=fix_initial_spectrum,
+            initial_spectrum_unavailable_reason=initial_spectrum_unavailable_reason,
+            final_spectrum_label=final_spectrum_label,
+            default_fix_final_spectrum=fix_final_spectrum,
+            final_spectrum_unavailable_reason=final_spectrum_unavailable_reason,
         )
         corrected, cropped, used_region = apply_preprocessing_choices(
             args,
@@ -578,7 +690,15 @@ def preprocess_experiment(
             "Enter/s = si, n = volver a elegir poda/baseline/rango: "
         ).strip().lower()
         if approve in {"", "s", "si", "sí", "y", "yes"}:
-            return corrected, work_range, c0, reaction_start_time, reaction_end_time
+            return (
+                corrected,
+                work_range,
+                c0,
+                reaction_start_time,
+                reaction_end_time,
+                fix_initial_spectrum,
+                fix_final_spectrum,
+            )
         if approve in {"n", "no"}:
             print()
             print("Volviendo a las opciones de preprocesado.")

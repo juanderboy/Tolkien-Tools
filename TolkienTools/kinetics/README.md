@@ -26,7 +26,7 @@ carpeta:
 - `kinet_io.py`: lectura de tablas y conversion previa de `.KD`.
 - `kinet_preprocessing.py`: baseline, recortes de tiempo/lambda y descarte de espectros.
 - `kinet_models.py`: perfiles de concentracion para los modelos cineticos.
-- `kinet_fitting.py`: NNLS, pseudoinversa, factor analysis y optimizacion de constantes.
+- `kinet_fitting.py`: NNLS y optimizacion de constantes.
 - `kinet_linalg.py`: helpers de algebra lineal/SVD.
 - `kinet_plotting.py`: figuras exploratorias, diagnosticos y panel final.
 - `kinet_export.py`: archivos finales de concentraciones, espectros puros, resumen y PNG.
@@ -35,18 +35,20 @@ Cada analisis escribe sus artefactos en una subcarpeta
 `results_<nombre-del-archivo>` junto al archivo de entrada, para no mezclar
 resultados con experimentos pendientes de procesar.
 
+La poda temporal de inicio conserva los espectros con `t >= t_inicio`. Despues
+de aplicar todos los descartes de espectros/tiempos, el tiempo corregido se
+redefine siempre como:
+
+```text
+t_corregido = t_original - t_original_del_primer_espectro_retenido
+```
+
+Por lo tanto, el primer espectro que entra al ajuste queda como `t = 0`, aunque
+`t_inicio` sea menor o igual al tiempo original de ese espectro.
+
 Una vez elegido el modelo, la rutina imprime una presentacion basica con el
 esquema cinetico, las especies absorbentes, la evolucion temporal ajustada, los
 parametros y notas de interpretacion.
-
-El metodo `factor` esta implementado para `A -> B`, `A -> B -> C` y
-`A <-> B -> C`.
-Para `A -> B -> C`, el ajuste en espacio de factores identifica los dos
-exponentes cineticos y luego elige el orden `k1/k2` que da espectros
-recuperados con menor contribucion negativa. En el mecanismo reversible, las
-constantes tienen roles distintos (`k1`, `k-1`, `k2`) y no se permutan. Este
-ultimo caso es mas sensible a correlaciones entre parametros; conviene usarlo
-como diagnostico y comparar siempre contra `nnls`.
 
 ## Mecanismos especiales
 
@@ -66,6 +68,14 @@ un sistema quimico. Actualmente contiene:
   constantes (`k_on`, `k_slow,obs`, `k_auto`). En un experimento individual,
   `k_on` se trata como constante aparente pseudo-primer orden; para estimar un
   `k_on` bimolecular hay que considerar la concentracion efectiva de `HS-`.
+
+- `reduccion de MbFe(III)-HS por HSS- agregado con transsulfuracion`: parte de
+  `MbFeIII-HS` ya formado por exceso de `HS-` y agrega una cantidad conocida de
+  `HSS-` externo. El modelo incluye internamente `MbFeIII-HSS`, que comparte
+  espectro con `MbFeIII-HS`, por lo que el ajuste espectral usa dos especies
+  visibles (`MbFeIII-Sx = MbFeIII-HS + MbFeIII-HSS`, `MbFeII`) pero cuatro
+  constantes (`k_slow,obs`, `k_auto`, `k_ts`, `k_fast`). La relacion inicial
+  agregada se fija con `--hss-ratio R`.
 
 ## Detalles tecnicos de los modelos
 
@@ -131,6 +141,52 @@ el sistema, por lo que es mas costoso que una formula analitica. Para tres
 especies y una cantidad normal de tiempos experimentales, el costo deberia ser
 razonable.
 
+### `mbfe3_sulfide_hss_transsulfuration`
+
+Este modelo describe experimentos donde primero se forma rapidamente
+`MbFeIII-HS` por exceso de `HS-` y luego se agrega `HSS-` externo en una
+relacion conocida:
+
+```text
+R_HSS = [HSS-]agregado / [Mb]total
+```
+
+El mecanismo interno es:
+
+```text
+A = MbFeIII-HS
+B = MbFeIII-HSS
+P = MbFeII
+S = HSS- libre agregado efectivo
+x = P / [Mb]total
+
+dA/dt = -(k_slow + k_auto*x)*A - k_ts*A*S
+dB/dt =  k_ts*A*S - k_fast*B
+dP/dt =  (k_slow + k_auto*x)*A + k_fast*B
+dS/dt = -k_ts*A*S
+```
+
+Las condiciones iniciales son:
+
+```text
+A(0) = c0
+B(0) = 0
+P(0) = 0
+S(0) = R_HSS*c0
+```
+
+`MbFeIII-HS` y `MbFeIII-HSS` se distinguen cineticamente pero no
+espectralmente. Por eso el ajuste recibe solo:
+
+```text
+[MbFeIII-Sx](t) = A(t) + B(t)
+[MbFeII](t) = P(t)
+```
+
+La autocatálisis endogena del mecanismo con `HS-` se mantiene en el termino
+`k_auto*x`. El `HSS-` agregado se trata como una especie externa consumible y se
+fija con `--hss-ratio`.
+
 Ejemplo no interactivo:
 
 ```bash
@@ -146,6 +202,52 @@ tolkien-tools 4 experimento.dat \
   --baseline-mode none \
   --no-plot
 ```
+
+```bash
+tolkien-tools 4 experimento.dat \
+  --model mbfe3_sulfide_hss_transsulfuration \
+  --hss-ratio 20 \
+  --baseline-mode none \
+  --no-plot
+```
+
+Para fijar el espectro del reactivo al primer espectro experimental y ajustar
+solo los espectros restantes, usar:
+
+```bash
+tolkien-tools 4 experimento.dat \
+  --model a_to_b_to_c \
+  --fix-initial-spectrum \
+  --fit-method nnls
+```
+
+Esta opcion esta disponible para todos los mecanismos. No se combina con
+`--initial-spectrum-weight`, que es solo una restriccion suave sobre el espectro
+inicial.
+
+Para fijar tambien el espectro del producto al ultimo espectro experimental:
+
+```bash
+tolkien-tools 4 experimento.dat \
+  --model a_to_b_to_c \
+  --fix-final-spectrum \
+  --fit-method nnls
+```
+
+Tambien se pueden fijar ambos extremos:
+
+```bash
+tolkien-tools 4 experimento.dat \
+  --model a_to_b_to_c \
+  --fix-initial-spectrum \
+  --fix-final-spectrum \
+  --fit-method nnls
+```
+
+En el flujo interactivo, la misma opcion se pregunta inmediatamente despues de
+descartar espectros/tiempos. De esa manera el "primer espectro" y el "ultimo
+espectro" son los extremos que quedan luego de la poda temporal y que entraran
+al ajuste.
 
 Backup previo a la separacion:
 

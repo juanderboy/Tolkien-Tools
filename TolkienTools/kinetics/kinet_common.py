@@ -19,6 +19,9 @@ SPECIAL_MODEL_LABELS = {
     "mbfe3_sulfide_binding_autocatalytic": (
         "reduccion autocatalitica de MbFe(III) por sulfuros con binding inicial"
     ),
+    "mbfe3_sulfide_hss_transsulfuration": (
+        "reduccion de MbFe(III)-HS por HSS- agregado con transsulfuracion"
+    ),
 }
 
 MODEL_LABELS = {
@@ -33,6 +36,7 @@ MODEL_SPECIES = {
     "a_rev_b_to_c": ("A", "B", "C"),
     "mbfe3_sulfide_autocatalytic": ("MbFeIII-SH", "MbFeII"),
     "mbfe3_sulfide_binding_autocatalytic": ("MbFeIII", "MbFeIII-HS", "MbFeII"),
+    "mbfe3_sulfide_hss_transsulfuration": ("MbFeIII-Sx", "MbFeII"),
 }
 
 
@@ -44,6 +48,8 @@ PARAMETER_LABELS = {
     "k_on": "k_on",
     "k_slow": "k_slow,obs",
     "k_auto": "k_auto",
+    "k_ts": "k_ts",
+    "k_fast": "k_fast",
 }
 
 
@@ -143,6 +149,35 @@ MODEL_PRESENTATIONS = {
             "k_auto no debe interpretarse directamente como k_Red(HSS-).",
         ),
     },
+    "mbfe3_sulfide_hss_transsulfuration": {
+        "scheme": (
+            "MbFeIII-HS + HSS- -> MbFeIII-HSS -> MbFeII, "
+            "sobre la reduccion autocatalitica por sulfuros"
+        ),
+        "profiles": (
+            "A = [MbFeIII-HS]",
+            "B = [MbFeIII-HSS]",
+            "S = [HSS-] libre agregado efectivo",
+            "x(t) = [MbFeII](t) / [Mb]total",
+            "dA/dt = -(k_slow + k_auto*x)*A - k_ts*A*S",
+            "dB/dt = k_ts*A*S - k_fast*B",
+            "d[MbFeII]/dt = (k_slow + k_auto*x)*A + k_fast*B",
+            "dS/dt = -k_ts*A*S",
+            "[MbFeIII-Sx](t) = A + B",
+        ),
+        "parameters": (
+            "k_slow,obs: constante aparente de reduccion lenta por HS-",
+            "k_auto: aceleracion fenomenologica por polisulfuros endogenos",
+            "k_ts: transsulfuracion bimolecular por HSS- agregado",
+            "k_fast: reduccion rapida del intermedio MbFeIII-HSS",
+        ),
+        "notes": (
+            "El ajuste usa dos especies absorbentes: MbFeIII-Sx y MbFeII.",
+            "MbFeIII-HS y MbFeIII-HSS se distinguen cineticamente pero comparten espectro.",
+            "La concentracion inicial de HSS- agregado se fija como R_HSS*c0.",
+            "La produccion endogena de especies tipo polisulfuro queda en el termino k_auto*x.",
+        ),
+    },
 }
 
 
@@ -175,3 +210,5 @@ class FitResult:
     error: float
     known_species: tuple[str, ...] = ()
     known_spectrum_scales: dict[str, float] | None = None
+    fixed_initial_spectrum: bool = False
+    fixed_final_spectrum: bool = False

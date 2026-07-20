@@ -15,6 +15,7 @@ from kinet_models import (
     concentration_profile_a_to_b,
     concentration_profile_a_to_b_to_c,
     concentration_profile_mbfe3_sulfide_binding_autocatalytic,
+    concentration_profile_mbfe3_sulfide_hss_transsulfuration,
     concentration_profile_mbfe3_sulfide_autocatalytic,
 )
 
@@ -67,47 +68,6 @@ def solve_small_nnls_batch(design: np.ndarray, target: np.ndarray) -> np.ndarray
     return best_spectra
 
 
-def factor_space_error(k: float, t: np.ndarray, w: np.ndarray, c0: float) -> float:
-    """Equivalent to terror.m for the two-component A -> B model.
-
-    This compares calculated concentration profiles against the experimental
-    factor-analysis profiles W. It is kept mainly as a compatibility path with
-    the MATLAB routine.
-    """
-    if k <= 0:
-        return np.inf
-
-    c = concentration_profile_a_to_b(t, k, c0=c0)
-    r = c @ np.linalg.pinv(w)
-    w_calc = np.linalg.solve(r, c)
-    diff = (w - w_calc).T
-    return np.linalg.norm(diff[:, 0]) + np.linalg.norm(diff[:, 1])
-
-
-def factor_space_error_for_concentrations(c: np.ndarray, w: np.ndarray) -> float:
-    """Compare kinetic concentration profiles against SVD temporal factors."""
-    if c.shape != w.shape:
-        raise ValueError("C and W must have the same shape for factor-space fitting")
-
-    try:
-        r = c @ np.linalg.pinv(w)
-        w_calc = np.linalg.solve(r, c)
-    except np.linalg.LinAlgError:
-        return np.inf
-
-    diff = w - w_calc
-    return float(sum(np.linalg.norm(diff[i, :]) for i in range(diff.shape[0])))
-
-
-def factor_spectra_from_concentrations(q: np.ndarray, w: np.ndarray, c: np.ndarray) -> np.ndarray:
-    """Recover pure spectra from SVD basis and fixed concentration profiles."""
-    if c.shape != w.shape:
-        raise ValueError("C and W must have the same shape for factor-space fitting")
-    r = c @ np.linalg.pinv(w)
-    return q @ np.linalg.inv(r)
-
-
-
 def fit_direct_spectra(
     absorbance: np.ndarray,
     c: np.ndarray,
@@ -115,6 +75,8 @@ def fit_direct_spectra(
     initial_spectrum_weight: float = 0.0,
     known_spectra: np.ndarray | None = None,
     known_spectrum_scales: dict[int, float] | None = None,
+    fix_initial_spectrum: bool = False,
+    fix_final_spectrum: bool = False,
 ) -> np.ndarray:
     """Fit pure spectra for fixed concentration profiles.
 
@@ -123,16 +85,27 @@ def fit_direct_spectra(
         A_exp(lambda, :) ~= E(lambda, :) @ C
 
     With spectra_method="nnls", E(lambda, species) >= 0 is enforced.
-    With spectra_method="pinv", the unconstrained pseudoinverse solution is
-    used and negative spectrum values are allowed.
 
     If initial_spectrum_weight > 0, add a soft penalty that keeps the pure
     spectrum of species A close to the first measured spectrum. The weight is
     equivalent to adding that many extra time points to the least-squares fit.
+
+    If fix_initial_spectrum is true, the first species spectrum is fixed to the
+    first measured spectrum divided by the total concentration at the first
+    time point. Only the remaining free species are fitted.
+
+    If fix_final_spectrum is true, the last species spectrum is fixed to the
+    last measured spectrum divided by the total concentration at the last time
+    point.
     """
     if initial_spectrum_weight < 0:
         raise ValueError("--initial-spectrum-weight must be nonnegative")
-    if spectra_method not in {"nnls", "pinv"}:
+    if fix_initial_spectrum and initial_spectrum_weight > 0:
+        raise ValueError(
+            "--initial-spectrum-weight cannot be used together with "
+            "--fix-initial-spectrum"
+        )
+    if spectra_method != "nnls":
         raise ValueError(f"Unknown direct spectra method: {spectra_method}")
 
     if known_spectra is None:
@@ -145,6 +118,37 @@ def fit_direct_spectra(
         if is_known and not np.all(np.isfinite(known_spectra[:, index])):
             raise ValueError("Known spectrum columns must be complete and finite")
     known_spectrum_scales = known_spectrum_scales or {}
+    if fix_initial_spectrum:
+        if known_mask[0]:
+            raise ValueError(
+                "The first species cannot be provided as a known spectrum and "
+                "fixed from the first experimental spectrum at the same time"
+            )
+        initial_concentration = float(np.sum(c[:, 0]))
+        if not np.isfinite(initial_concentration) or initial_concentration <= 0:
+            raise ValueError(
+                "Cannot fix the first spectrum because the calculated initial "
+                "total concentration is not positive"
+            )
+        known_spectra = known_spectra.copy()
+        known_spectra[:, 0] = absorbance[:, 0] / initial_concentration
+        known_mask = np.any(np.isfinite(known_spectra), axis=0)
+    if fix_final_spectrum:
+        final_index = c.shape[0] - 1
+        if known_mask[final_index]:
+            raise ValueError(
+                "The last species cannot be provided as a known spectrum and "
+                "fixed from the last experimental spectrum at the same time"
+            )
+        final_concentration = float(np.sum(c[:, -1]))
+        if not np.isfinite(final_concentration) or final_concentration <= 0:
+            raise ValueError(
+                "Cannot fix the last spectrum because the calculated final "
+                "total concentration is not positive"
+            )
+        known_spectra = known_spectra.copy()
+        known_spectra[:, final_index] = absorbance[:, -1] / final_concentration
+        known_mask = np.any(np.isfinite(known_spectra), axis=0)
     free_mask = ~known_mask
 
     spectra = np.zeros((absorbance.shape[0], c.shape[0]))
@@ -171,10 +175,6 @@ def fit_direct_spectra(
                 ]
             )
 
-    if spectra_method == "pinv":
-        spectra[:, free_mask] = (np.linalg.pinv(design) @ target.T).T
-        return spectra
-
     spectra[:, free_mask] = solve_small_nnls_batch(design, target)
     return spectra
 
@@ -186,6 +186,8 @@ def fit_nonnegative_spectra(
     initial_spectrum_weight: float = 0.0,
     known_spectra: np.ndarray | None = None,
     known_spectrum_scales: dict[int, float] | None = None,
+    fix_initial_spectrum: bool = False,
+    fix_final_spectrum: bool = False,
 ) -> np.ndarray:
     """Fit nonnegative pure spectra for fixed concentration profiles."""
     return fit_direct_spectra(
@@ -195,6 +197,8 @@ def fit_nonnegative_spectra(
         initial_spectrum_weight=initial_spectrum_weight,
         known_spectra=known_spectra,
         known_spectrum_scales=known_spectrum_scales,
+        fix_initial_spectrum=fix_initial_spectrum,
+            fix_final_spectrum=fix_final_spectrum,
     )
 
 
@@ -206,6 +210,8 @@ def direct_spectral_error_for_concentrations(
     initial_spectrum_weight: float = 0.0,
     known_spectra: np.ndarray | None = None,
     known_spectrum_scales: dict[int, float] | None = None,
+    fix_initial_spectrum: bool = False,
+    fix_final_spectrum: bool = False,
 ) -> float:
     """Objective function for a fixed concentration matrix."""
     spectra = fit_direct_spectra(
@@ -215,6 +221,8 @@ def direct_spectral_error_for_concentrations(
         initial_spectrum_weight=initial_spectrum_weight,
         known_spectra=known_spectra,
         known_spectrum_scales=known_spectrum_scales,
+        fix_initial_spectrum=fix_initial_spectrum,
+            fix_final_spectrum=fix_final_spectrum,
     )
     residuals = experiment.absorbance - spectra @ c
     error_squared = float(np.sum(residuals**2))
@@ -231,6 +239,8 @@ def direct_nonnegative_error_for_concentrations(
     initial_spectrum_weight: float = 0.0,
     known_spectra: np.ndarray | None = None,
     known_spectrum_scales: dict[int, float] | None = None,
+    fix_initial_spectrum: bool = False,
+    fix_final_spectrum: bool = False,
 ) -> float:
     """Objective function for a fixed concentration matrix using NNLS."""
     return direct_spectral_error_for_concentrations(
@@ -240,6 +250,8 @@ def direct_nonnegative_error_for_concentrations(
         initial_spectrum_weight=initial_spectrum_weight,
         known_spectra=known_spectra,
         known_spectrum_scales=known_spectrum_scales,
+        fix_initial_spectrum=fix_initial_spectrum,
+            fix_final_spectrum=fix_final_spectrum,
     )
 
 
@@ -252,6 +264,8 @@ def direct_spectral_error(
     initial_spectrum_weight: float = 0.0,
     known_spectra: np.ndarray | None = None,
     known_spectrum_scales: dict[int, float] | None = None,
+    fix_initial_spectrum: bool = False,
+    fix_final_spectrum: bool = False,
 ) -> float:
     """Objective function for the A -> B direct spectral fit."""
     if k <= 0:
@@ -265,6 +279,8 @@ def direct_spectral_error(
         initial_spectrum_weight=initial_spectrum_weight,
         known_spectra=known_spectra,
         known_spectrum_scales=known_spectrum_scales,
+        fix_initial_spectrum=fix_initial_spectrum,
+            fix_final_spectrum=fix_final_spectrum,
     )
 
 
@@ -276,6 +292,8 @@ def direct_nonnegative_error(
     initial_spectrum_weight: float = 0.0,
     known_spectra: np.ndarray | None = None,
     known_spectrum_scales: dict[int, float] | None = None,
+    fix_initial_spectrum: bool = False,
+    fix_final_spectrum: bool = False,
 ) -> float:
     """Objective function for the A -> B NNLS fit."""
     if k <= 0:
@@ -288,6 +306,8 @@ def direct_nonnegative_error(
         initial_spectrum_weight=initial_spectrum_weight,
         known_spectra=known_spectra,
         known_spectrum_scales=known_spectrum_scales,
+        fix_initial_spectrum=fix_initial_spectrum,
+            fix_final_spectrum=fix_final_spectrum,
     )
 
 
@@ -333,10 +353,13 @@ def optimize_kinetic_parameters(
     parameter_bounds: dict[str, tuple[float, float]] | None = None,
     progress_callback: ProgressCallback | None = None,
     optimizer: str = "hybrid",
+    max_starts: int | None = None,
 ) -> dict[str, float]:
     """Minimize an objective as a function of multiple positive constants."""
-    if optimizer not in {"hybrid", "powell"}:
+    if optimizer not in {"hybrid", "powell", "lbfgsb"}:
         raise ValueError(f"Unknown kinetic optimizer: {optimizer}")
+    if max_starts is not None and max_starts <= 0:
+        raise ValueError("max_starts must be positive")
     k_min, k_max = validate_k_bounds(k_bounds)
     parameter_bounds = parameter_bounds or {}
     bounds: list[tuple[float, float]] = []
@@ -358,6 +381,8 @@ def optimize_kinetic_parameters(
             start = center.copy()
             start[i] = lower[i] + fraction * (upper[i] - lower[i])
             starts.append(start)
+    if max_starts is not None:
+        starts = starts[:max_starts]
 
     best = None
 
@@ -394,6 +419,8 @@ def optimize_kinetic_parameters(
         )
         if best is None or opt.fun < best.fun:
             best = opt
+        if optimizer == "lbfgsb":
+            continue
 
         opt = minimize(
             objective,
@@ -474,45 +501,6 @@ def direct_parameter_names_and_bounds(
 
 
 
-def fit_a_to_b_factor(
-    experiment: Experiment,
-    c0: float = 1.0,
-    n_components: int = 2,
-    k_bounds: tuple[float, float] = (1e-8, 1e-1),
-) -> FitResult:
-    """Fit k using the original factor-analysis objective."""
-    q, w, singular_values = factor_analysis(experiment.absorbance, n_components)
-
-    if n_components != 2:
-        raise ValueError("The A -> B factor-space fit requires exactly 2 components.")
-
-    k = optimize_k(
-        lambda trial_k: factor_space_error(trial_k, experiment.t, w, c0),
-        k_bounds,
-    )
-    c = concentration_profile_a_to_b(experiment.t, k, c0=c0)
-    r = c @ np.linalg.pinv(w)
-    spectra = q @ np.linalg.inv(r)
-    absorbance_calc = spectra @ c
-    residuals = experiment.absorbance - absorbance_calc
-
-    return FitResult(
-        method="factor",
-        model="a_to_b",
-        params={"k": k},
-        species_labels=MODEL_SPECIES["a_to_b"],
-        c=c,
-        spectra=spectra,
-        absorbance_calc=absorbance_calc,
-        residuals=residuals,
-        singular_values=singular_values,
-        q=q,
-        w=w,
-        error=factor_space_error(k, experiment.t, w, c0),
-    )
-
-
-
 def fit_a_to_b_nnls(
     experiment: Experiment,
     c0: float = 1.0,
@@ -581,6 +569,8 @@ def fit_a_to_b_direct(
     initial_spectrum_weight: float = 0.0,
     known_spectra: np.ndarray | None = None,
     known_species: tuple[str, ...] = (),
+    fix_initial_spectrum: bool = False,
+    fix_final_spectrum: bool = False,
     result_model: str = "a_to_b",
     concentration_profile=concentration_profile_a_to_b,
     progress_callback: ProgressCallback | None = None,
@@ -610,6 +600,8 @@ def fit_a_to_b_direct(
                 result_model,
                 known_species,
             ),
+            fix_initial_spectrum=fix_initial_spectrum,
+            fix_final_spectrum=fix_final_spectrum,
         )
 
     params = optimize_kinetic_parameters(
@@ -631,6 +623,8 @@ def fit_a_to_b_direct(
         initial_spectrum_weight=initial_spectrum_weight,
         known_spectra=known_spectra,
         known_spectrum_scales=known_scale_by_index,
+        fix_initial_spectrum=fix_initial_spectrum,
+            fix_final_spectrum=fix_final_spectrum,
     )
     absorbance_calc = spectra @ c
     residuals = experiment.absorbance - absorbance_calc
@@ -641,6 +635,8 @@ def fit_a_to_b_direct(
         initial_spectrum_weight=initial_spectrum_weight,
         known_spectra=known_spectra,
         known_spectrum_scales=known_scale_by_index,
+        fix_initial_spectrum=fix_initial_spectrum,
+            fix_final_spectrum=fix_final_spectrum,
     )
 
     return FitResult(
@@ -658,6 +654,8 @@ def fit_a_to_b_direct(
         error=error,
         known_species=known_species,
         known_spectrum_scales=known_scale_report,
+        fixed_initial_spectrum=fix_initial_spectrum,
+        fixed_final_spectrum=fix_final_spectrum,
     )
 
 
@@ -671,29 +669,26 @@ def fit_a_to_b(
     initial_spectrum_weight: float = 0.0,
     known_spectra: np.ndarray | None = None,
     known_species: tuple[str, ...] = (),
+    fix_initial_spectrum: bool = False,
+    fix_final_spectrum: bool = False,
     progress_callback: ProgressCallback | None = None,
 ) -> FitResult:
-    """Dispatch between available A -> B fitting methods."""
-    if method in {"nnls", "pinv"}:
-        return fit_a_to_b_direct(
-            experiment,
-            c0=c0,
-            n_components=n_components,
-            k_bounds=k_bounds,
-            spectra_method=method,
-            initial_spectrum_weight=initial_spectrum_weight,
-            known_spectra=known_spectra,
-            known_species=known_species,
-            progress_callback=progress_callback,
-        )
-    if method == "factor":
-        return fit_a_to_b_factor(
-            experiment,
-            c0=c0,
-            n_components=n_components,
-            k_bounds=k_bounds,
-        )
-    raise ValueError(f"Unknown fit method: {method}")
+    """Fit A -> B with NNLS spectra."""
+    if method != "nnls":
+        raise ValueError("Only --fit-method nnls is supported")
+    return fit_a_to_b_direct(
+        experiment,
+        c0=c0,
+        n_components=n_components,
+        k_bounds=k_bounds,
+        spectra_method="nnls",
+        initial_spectrum_weight=initial_spectrum_weight,
+        known_spectra=known_spectra,
+        known_species=known_species,
+        fix_initial_spectrum=fix_initial_spectrum,
+        fix_final_spectrum=fix_final_spectrum,
+        progress_callback=progress_callback,
+    )
 
 
 def fit_mbfe3_sulfide_autocatalytic(
@@ -705,13 +700,13 @@ def fit_mbfe3_sulfide_autocatalytic(
     initial_spectrum_weight: float = 0.0,
     known_spectra: np.ndarray | None = None,
     known_species: tuple[str, ...] = (),
+    fix_initial_spectrum: bool = False,
+    fix_final_spectrum: bool = False,
     progress_callback: ProgressCallback | None = None,
 ) -> FitResult:
     """Fit global autocatalytic MbFeIII-SH reduction by sulfide."""
-    if method == "factor":
-        raise ValueError(
-            "The MbFeIII sulfide autocatalytic fit requires --fit-method nnls or pinv"
-        )
+    if method != "nnls":
+        raise ValueError("Only --fit-method nnls is supported")
     q, w, singular_values = factor_analysis(experiment.absorbance, n_components)
     if n_components != 2:
         raise ValueError("The MbFeIII sulfide autocatalytic fit requires exactly 2 components.")
@@ -740,6 +735,8 @@ def fit_mbfe3_sulfide_autocatalytic(
                 "mbfe3_sulfide_autocatalytic",
                 known_species,
             ),
+            fix_initial_spectrum=fix_initial_spectrum,
+            fix_final_spectrum=fix_final_spectrum,
         )
 
     params = optimize_kinetic_parameters(
@@ -748,7 +745,7 @@ def fit_mbfe3_sulfide_autocatalytic(
         k_bounds,
         parameter_bounds=parameter_bounds,
         progress_callback=progress_callback,
-        optimizer="powell" if method == "nnls" else "hybrid",
+        optimizer="powell",
     )
     known_scale_report = extract_known_scale_report(params, known_species)
     known_scale_by_index = known_scale_parameters(
@@ -769,6 +766,8 @@ def fit_mbfe3_sulfide_autocatalytic(
         initial_spectrum_weight=initial_spectrum_weight,
         known_spectra=known_spectra,
         known_spectrum_scales=known_scale_by_index,
+        fix_initial_spectrum=fix_initial_spectrum,
+            fix_final_spectrum=fix_final_spectrum,
     )
     absorbance_calc = spectra @ c
     residuals = experiment.absorbance - absorbance_calc
@@ -779,6 +778,8 @@ def fit_mbfe3_sulfide_autocatalytic(
         initial_spectrum_weight=initial_spectrum_weight,
         known_spectra=known_spectra,
         known_spectrum_scales=known_scale_by_index,
+        fix_initial_spectrum=fix_initial_spectrum,
+            fix_final_spectrum=fix_final_spectrum,
     )
 
     return FitResult(
@@ -796,6 +797,8 @@ def fit_mbfe3_sulfide_autocatalytic(
         error=error,
         known_species=known_species,
         known_spectrum_scales=known_scale_report,
+        fixed_initial_spectrum=fix_initial_spectrum,
+        fixed_final_spectrum=fix_final_spectrum,
     )
 
 
@@ -808,13 +811,13 @@ def fit_mbfe3_sulfide_binding_autocatalytic(
     initial_spectrum_weight: float = 0.0,
     known_spectra: np.ndarray | None = None,
     known_species: tuple[str, ...] = (),
+    fix_initial_spectrum: bool = False,
+    fix_final_spectrum: bool = False,
     progress_callback: ProgressCallback | None = None,
 ) -> FitResult:
     """Fit MbFeIII binding HS- before autocatalytic sulfide reduction."""
-    if method == "factor":
-        raise ValueError(
-            "The MbFeIII sulfide binding/autocatalytic fit requires --fit-method nnls or pinv"
-        )
+    if method != "nnls":
+        raise ValueError("Only --fit-method nnls is supported")
     q, w, singular_values = factor_analysis(experiment.absorbance, n_components)
     if n_components != 3:
         raise ValueError(
@@ -846,6 +849,8 @@ def fit_mbfe3_sulfide_binding_autocatalytic(
                 "mbfe3_sulfide_binding_autocatalytic",
                 known_species,
             ),
+            fix_initial_spectrum=fix_initial_spectrum,
+            fix_final_spectrum=fix_final_spectrum,
         )
 
     params = optimize_kinetic_parameters(
@@ -854,7 +859,7 @@ def fit_mbfe3_sulfide_binding_autocatalytic(
         k_bounds,
         parameter_bounds=parameter_bounds,
         progress_callback=progress_callback,
-        optimizer="powell" if method == "nnls" else "hybrid",
+        optimizer="powell",
     )
     known_scale_report = extract_known_scale_report(params, known_species)
     known_scale_by_index = known_scale_parameters(
@@ -876,6 +881,8 @@ def fit_mbfe3_sulfide_binding_autocatalytic(
         initial_spectrum_weight=initial_spectrum_weight,
         known_spectra=known_spectra,
         known_spectrum_scales=known_scale_by_index,
+        fix_initial_spectrum=fix_initial_spectrum,
+            fix_final_spectrum=fix_final_spectrum,
     )
     absorbance_calc = spectra @ c
     residuals = experiment.absorbance - absorbance_calc
@@ -886,6 +893,8 @@ def fit_mbfe3_sulfide_binding_autocatalytic(
         initial_spectrum_weight=initial_spectrum_weight,
         known_spectra=known_spectra,
         known_spectrum_scales=known_scale_by_index,
+        fix_initial_spectrum=fix_initial_spectrum,
+            fix_final_spectrum=fix_final_spectrum,
     )
 
     return FitResult(
@@ -903,6 +912,132 @@ def fit_mbfe3_sulfide_binding_autocatalytic(
         error=error,
         known_species=known_species,
         known_spectrum_scales=known_scale_report,
+        fixed_initial_spectrum=fix_initial_spectrum,
+        fixed_final_spectrum=fix_final_spectrum,
+    )
+
+
+def fit_mbfe3_sulfide_hss_transsulfuration(
+    experiment: Experiment,
+    c0: float = 1.0,
+    hss_ratio: float = 20.0,
+    n_components: int = 2,
+    method: str = "nnls",
+    k_bounds: tuple[float, float] = (1e-8, 1e-1),
+    initial_spectrum_weight: float = 0.0,
+    known_spectra: np.ndarray | None = None,
+    known_species: tuple[str, ...] = (),
+    fix_initial_spectrum: bool = False,
+    fix_final_spectrum: bool = False,
+    progress_callback: ProgressCallback | None = None,
+) -> FitResult:
+    """Fit MbFeIII-HS reduction with added HSS- transsulfuration."""
+    if method != "nnls":
+        raise ValueError("Only --fit-method nnls is supported")
+    if hss_ratio < 0:
+        raise ValueError("--hss-ratio must be nonnegative")
+    q, w, singular_values = factor_analysis(experiment.absorbance, n_components)
+    if n_components != 2:
+        raise ValueError(
+            "The MbFeIII sulfide/HSS transsulfuration fit requires exactly 2 components."
+        )
+
+    parameter_names, parameter_bounds = direct_parameter_names_and_bounds(
+        ("k_slow", "k_auto", "k_ts", "k_fast"),
+        known_species,
+        k_bounds,
+    )
+    parameter_bounds["k_ts"] = (1e-8, 1e4)
+
+    def objective(params: dict[str, float]) -> float:
+        c_trial = concentration_profile_mbfe3_sulfide_hss_transsulfuration(
+            experiment.t,
+            params["k_slow"],
+            params["k_auto"],
+            params["k_ts"],
+            params["k_fast"],
+            hss_ratio=hss_ratio,
+            c0=c0,
+        )
+        return direct_spectral_error_for_concentrations(
+            c_trial,
+            experiment,
+            spectra_method=method,
+            initial_spectrum_weight=initial_spectrum_weight,
+            known_spectra=known_spectra,
+            known_spectrum_scales=known_scale_parameters(
+                params,
+                "mbfe3_sulfide_hss_transsulfuration",
+                known_species,
+            ),
+            fix_initial_spectrum=fix_initial_spectrum,
+            fix_final_spectrum=fix_final_spectrum,
+        )
+
+    params = optimize_kinetic_parameters(
+        objective,
+        parameter_names,
+        k_bounds,
+        parameter_bounds=parameter_bounds,
+        progress_callback=progress_callback,
+        optimizer="lbfgsb",
+        max_starts=1,
+    )
+    known_scale_report = extract_known_scale_report(params, known_species)
+    known_scale_by_index = known_scale_parameters(
+        params,
+        "mbfe3_sulfide_hss_transsulfuration",
+        known_species,
+    )
+    c = concentration_profile_mbfe3_sulfide_hss_transsulfuration(
+        experiment.t,
+        params["k_slow"],
+        params["k_auto"],
+        params["k_ts"],
+        params["k_fast"],
+        hss_ratio=hss_ratio,
+        c0=c0,
+    )
+    spectra = fit_direct_spectra(
+        experiment.absorbance,
+        c,
+        spectra_method=method,
+        initial_spectrum_weight=initial_spectrum_weight,
+        known_spectra=known_spectra,
+        known_spectrum_scales=known_scale_by_index,
+        fix_initial_spectrum=fix_initial_spectrum,
+            fix_final_spectrum=fix_final_spectrum,
+    )
+    absorbance_calc = spectra @ c
+    residuals = experiment.absorbance - absorbance_calc
+    error = direct_spectral_error_for_concentrations(
+        c,
+        experiment,
+        spectra_method=method,
+        initial_spectrum_weight=initial_spectrum_weight,
+        known_spectra=known_spectra,
+        known_spectrum_scales=known_scale_by_index,
+        fix_initial_spectrum=fix_initial_spectrum,
+            fix_final_spectrum=fix_final_spectrum,
+    )
+
+    return FitResult(
+        method=method,
+        model="mbfe3_sulfide_hss_transsulfuration",
+        params={name: params[name] for name in ("k_slow", "k_auto", "k_ts", "k_fast")},
+        species_labels=MODEL_SPECIES["mbfe3_sulfide_hss_transsulfuration"],
+        c=c,
+        spectra=spectra,
+        absorbance_calc=absorbance_calc,
+        residuals=residuals,
+        singular_values=singular_values,
+        q=q,
+        w=w,
+        error=error,
+        known_species=known_species,
+        known_spectrum_scales=known_scale_report,
+        fixed_initial_spectrum=fix_initial_spectrum,
+        fixed_final_spectrum=fix_final_spectrum,
     )
 
 
@@ -916,6 +1051,8 @@ def fit_a_to_b_to_c_direct(
     initial_spectrum_weight: float = 0.0,
     known_spectra: np.ndarray | None = None,
     known_species: tuple[str, ...] = (),
+    fix_initial_spectrum: bool = False,
+    fix_final_spectrum: bool = False,
     progress_callback: ProgressCallback | None = None,
 ) -> FitResult:
     """Fit A -> B -> C by direct reconstruction with NNLS or pseudoinverse spectra."""
@@ -942,6 +1079,8 @@ def fit_a_to_b_to_c_direct(
                 "a_to_b_to_c",
                 known_species,
             ),
+            fix_initial_spectrum=fix_initial_spectrum,
+            fix_final_spectrum=fix_final_spectrum,
         )
 
     parameter_names, parameter_bounds = direct_parameter_names_and_bounds(
@@ -972,6 +1111,8 @@ def fit_a_to_b_to_c_direct(
         initial_spectrum_weight=initial_spectrum_weight,
         known_spectra=known_spectra,
         known_spectrum_scales=known_scale_by_index,
+        fix_initial_spectrum=fix_initial_spectrum,
+            fix_final_spectrum=fix_final_spectrum,
     )
     absorbance_calc = spectra @ c
     residuals = experiment.absorbance - absorbance_calc
@@ -982,6 +1123,8 @@ def fit_a_to_b_to_c_direct(
         initial_spectrum_weight=initial_spectrum_weight,
         known_spectra=known_spectra,
         known_spectrum_scales=known_scale_by_index,
+        fix_initial_spectrum=fix_initial_spectrum,
+            fix_final_spectrum=fix_final_spectrum,
     )
 
     return FitResult(
@@ -999,94 +1142,8 @@ def fit_a_to_b_to_c_direct(
         error=error,
         known_species=known_species,
         known_spectrum_scales=known_scale_report,
-    )
-
-
-
-def fit_a_to_b_to_c_factor(
-    experiment: Experiment,
-    c0: float = 1.0,
-    n_components: int = 3,
-    k_bounds: tuple[float, float] = (1e-8, 1e-1),
-) -> FitResult:
-    """Fit A -> B -> C using a three-component factor-space objective."""
-    q, w, singular_values = factor_analysis(experiment.absorbance, n_components)
-
-    if n_components != 3:
-        raise ValueError("The A -> B -> C factor-space fit requires exactly 3 components.")
-
-    def objective(params: dict[str, float]) -> float:
-        c = concentration_profile_a_to_b_to_c(
-            experiment.t,
-            params["k1"],
-            params["k2"],
-            c0=c0,
-        )
-        return factor_space_error_for_concentrations(c, w)
-
-    params = optimize_kinetic_parameters(
-        objective,
-        ("k1", "k2"),
-        k_bounds,
-    )
-    candidates = []
-    for k1, k2 in (
-        (params["k1"], params["k2"]),
-        (params["k2"], params["k1"]),
-    ):
-        c_candidate = concentration_profile_a_to_b_to_c(
-            experiment.t,
-            k1,
-            k2,
-            c0=c0,
-        )
-        try:
-            spectra_candidate = factor_spectra_from_concentrations(q, w, c_candidate)
-        except np.linalg.LinAlgError:
-            continue
-        absorbance_calc_candidate = spectra_candidate @ c_candidate
-        residuals_candidate = experiment.absorbance - absorbance_calc_candidate
-        negative_penalty = float(np.sum(np.minimum(spectra_candidate, 0.0) ** 2))
-        reconstruction_error = float(np.linalg.norm(residuals_candidate))
-        candidates.append(
-            (
-                negative_penalty,
-                reconstruction_error,
-                {"k1": k1, "k2": k2},
-                c_candidate,
-                spectra_candidate,
-                absorbance_calc_candidate,
-                residuals_candidate,
-            )
-        )
-
-    if not candidates:
-        raise RuntimeError("A -> B -> C factor fit failed to recover spectra")
-
-    (
-        _,
-        _,
-        params,
-        c,
-        spectra,
-        absorbance_calc,
-        residuals,
-    ) = min(candidates, key=lambda item: (item[0], item[1]))
-    error = factor_space_error_for_concentrations(c, w)
-
-    return FitResult(
-        method="factor",
-        model="a_to_b_to_c",
-        params=params,
-        species_labels=MODEL_SPECIES["a_to_b_to_c"],
-        c=c,
-        spectra=spectra,
-        absorbance_calc=absorbance_calc,
-        residuals=residuals,
-        singular_values=singular_values,
-        q=q,
-        w=w,
-        error=error,
+        fixed_initial_spectrum=fix_initial_spectrum,
+        fixed_final_spectrum=fix_final_spectrum,
     )
 
 
@@ -1099,6 +1156,8 @@ def fit_a_to_b_to_c_nnls(
     initial_spectrum_weight: float = 0.0,
     known_spectra: np.ndarray | None = None,
     known_species: tuple[str, ...] = (),
+    fix_initial_spectrum: bool = False,
+    fix_final_spectrum: bool = False,
 ) -> FitResult:
     """Fit A -> B -> C by direct reconstruction with nonnegative spectra."""
     return fit_a_to_b_to_c_direct(
@@ -1110,6 +1169,8 @@ def fit_a_to_b_to_c_nnls(
         initial_spectrum_weight=initial_spectrum_weight,
         known_spectra=known_spectra,
         known_species=known_species,
+        fix_initial_spectrum=fix_initial_spectrum,
+            fix_final_spectrum=fix_final_spectrum,
     )
 
 
@@ -1123,6 +1184,8 @@ def fit_a_rev_b_to_c_direct(
     initial_spectrum_weight: float = 0.0,
     known_spectra: np.ndarray | None = None,
     known_species: tuple[str, ...] = (),
+    fix_initial_spectrum: bool = False,
+    fix_final_spectrum: bool = False,
     progress_callback: ProgressCallback | None = None,
 ) -> FitResult:
     """Fit A <-> B -> C by direct reconstruction with NNLS or pseudoinverse spectra."""
@@ -1150,6 +1213,8 @@ def fit_a_rev_b_to_c_direct(
                 "a_rev_b_to_c",
                 known_species,
             ),
+            fix_initial_spectrum=fix_initial_spectrum,
+            fix_final_spectrum=fix_final_spectrum,
         )
 
     parameter_names, parameter_bounds = direct_parameter_names_and_bounds(
@@ -1181,6 +1246,8 @@ def fit_a_rev_b_to_c_direct(
         initial_spectrum_weight=initial_spectrum_weight,
         known_spectra=known_spectra,
         known_spectrum_scales=known_scale_by_index,
+        fix_initial_spectrum=fix_initial_spectrum,
+            fix_final_spectrum=fix_final_spectrum,
     )
     absorbance_calc = spectra @ c
     residuals = experiment.absorbance - absorbance_calc
@@ -1191,6 +1258,8 @@ def fit_a_rev_b_to_c_direct(
         initial_spectrum_weight=initial_spectrum_weight,
         known_spectra=known_spectra,
         known_spectrum_scales=known_scale_by_index,
+        fix_initial_spectrum=fix_initial_spectrum,
+            fix_final_spectrum=fix_final_spectrum,
     )
 
     return FitResult(
@@ -1208,62 +1277,8 @@ def fit_a_rev_b_to_c_direct(
         error=error,
         known_species=known_species,
         known_spectrum_scales=known_scale_report,
-    )
-
-
-
-def fit_a_rev_b_to_c_factor(
-    experiment: Experiment,
-    c0: float = 1.0,
-    n_components: int = 3,
-    k_bounds: tuple[float, float] = (1e-8, 1e-1),
-) -> FitResult:
-    """Fit A <-> B -> C using a three-component factor-space objective."""
-    q, w, singular_values = factor_analysis(experiment.absorbance, n_components)
-
-    if n_components != 3:
-        raise ValueError("The A <-> B -> C factor-space fit requires exactly 3 components.")
-
-    def objective(params: dict[str, float]) -> float:
-        c = concentration_profile_a_rev_b_to_c(
-            experiment.t,
-            params["k1"],
-            params["k_1"],
-            params["k2"],
-            c0=c0,
-        )
-        return factor_space_error_for_concentrations(c, w)
-
-    params = optimize_kinetic_parameters(
-        objective,
-        ("k1", "k_1", "k2"),
-        k_bounds,
-    )
-    c = concentration_profile_a_rev_b_to_c(
-        experiment.t,
-        params["k1"],
-        params["k_1"],
-        params["k2"],
-        c0=c0,
-    )
-    spectra = factor_spectra_from_concentrations(q, w, c)
-    absorbance_calc = spectra @ c
-    residuals = experiment.absorbance - absorbance_calc
-    error = factor_space_error_for_concentrations(c, w)
-
-    return FitResult(
-        method="factor",
-        model="a_rev_b_to_c",
-        params=params,
-        species_labels=MODEL_SPECIES["a_rev_b_to_c"],
-        c=c,
-        spectra=spectra,
-        absorbance_calc=absorbance_calc,
-        residuals=residuals,
-        singular_values=singular_values,
-        q=q,
-        w=w,
-        error=error,
+        fixed_initial_spectrum=fix_initial_spectrum,
+        fixed_final_spectrum=fix_final_spectrum,
     )
 
 
@@ -1276,6 +1291,8 @@ def fit_a_rev_b_to_c_nnls(
     initial_spectrum_weight: float = 0.0,
     known_spectra: np.ndarray | None = None,
     known_species: tuple[str, ...] = (),
+    fix_initial_spectrum: bool = False,
+    fix_final_spectrum: bool = False,
 ) -> FitResult:
     """Fit A <-> B -> C by direct reconstruction with nonnegative spectra."""
     return fit_a_rev_b_to_c_direct(
@@ -1287,6 +1304,8 @@ def fit_a_rev_b_to_c_nnls(
         initial_spectrum_weight=initial_spectrum_weight,
         known_spectra=known_spectra,
         known_species=known_species,
+        fix_initial_spectrum=fix_initial_spectrum,
+            fix_final_spectrum=fix_final_spectrum,
     )
 
 
@@ -1298,20 +1317,23 @@ def fit_model(
     n_components: int,
     method: str,
     k_bounds: tuple[float, float],
+    hss_ratio: float = 20.0,
     initial_spectrum_weight: float = 0.0,
     known_spectra: np.ndarray | None = None,
     known_species: tuple[str, ...] = (),
+    fix_initial_spectrum: bool = False,
+    fix_final_spectrum: bool = False,
     progress_callback: ProgressCallback | None = None,
 ) -> FitResult:
     """Fit the selected kinetic model."""
+    if method != "nnls":
+        raise ValueError("Only --fit-method nnls is supported")
     if initial_spectrum_weight < 0:
         raise ValueError("--initial-spectrum-weight must be nonnegative")
-    if initial_spectrum_weight > 0 and method == "factor":
+    if fix_initial_spectrum and initial_spectrum_weight > 0:
         raise ValueError(
-            "--initial-spectrum-weight is available only with --fit-method nnls or pinv"
+            "--fix-initial-spectrum cannot be combined with --initial-spectrum-weight"
         )
-    if known_spectra is not None and method == "factor":
-        raise ValueError("Known spectra are available only with --fit-method nnls or pinv")
 
     if model == "a_to_b":
         return fit_a_to_b(
@@ -1323,6 +1345,8 @@ def fit_model(
             initial_spectrum_weight=initial_spectrum_weight,
             known_spectra=known_spectra,
             known_species=known_species,
+            fix_initial_spectrum=fix_initial_spectrum,
+            fix_final_spectrum=fix_final_spectrum,
             progress_callback=progress_callback,
         )
     if model == "mbfe3_sulfide_autocatalytic":
@@ -1335,6 +1359,8 @@ def fit_model(
             initial_spectrum_weight=initial_spectrum_weight,
             known_spectra=known_spectra,
             known_species=known_species,
+            fix_initial_spectrum=fix_initial_spectrum,
+            fix_final_spectrum=fix_final_spectrum,
             progress_callback=progress_callback,
         )
     if model == "mbfe3_sulfide_binding_autocatalytic":
@@ -1347,16 +1373,26 @@ def fit_model(
             initial_spectrum_weight=initial_spectrum_weight,
             known_spectra=known_spectra,
             known_species=known_species,
+            fix_initial_spectrum=fix_initial_spectrum,
+            fix_final_spectrum=fix_final_spectrum,
+            progress_callback=progress_callback,
+        )
+    if model == "mbfe3_sulfide_hss_transsulfuration":
+        return fit_mbfe3_sulfide_hss_transsulfuration(
+            experiment,
+            c0=c0,
+            hss_ratio=hss_ratio,
+            n_components=n_components,
+            method=method,
+            k_bounds=k_bounds,
+            initial_spectrum_weight=initial_spectrum_weight,
+            known_spectra=known_spectra,
+            known_species=known_species,
+            fix_initial_spectrum=fix_initial_spectrum,
+            fix_final_spectrum=fix_final_spectrum,
             progress_callback=progress_callback,
         )
     if model == "a_rev_b_to_c":
-        if method == "factor":
-            return fit_a_rev_b_to_c_factor(
-                experiment,
-                c0=c0,
-                n_components=n_components,
-                k_bounds=k_bounds,
-            )
         return fit_a_rev_b_to_c_direct(
             experiment,
             c0=c0,
@@ -1366,16 +1402,11 @@ def fit_model(
             initial_spectrum_weight=initial_spectrum_weight,
             known_spectra=known_spectra,
             known_species=known_species,
+            fix_initial_spectrum=fix_initial_spectrum,
+            fix_final_spectrum=fix_final_spectrum,
             progress_callback=progress_callback,
         )
     if model == "a_to_b_to_c":
-        if method == "factor":
-            return fit_a_to_b_to_c_factor(
-                experiment,
-                c0=c0,
-                n_components=n_components,
-                k_bounds=k_bounds,
-            )
         return fit_a_to_b_to_c_direct(
             experiment,
             c0=c0,
@@ -1385,6 +1416,8 @@ def fit_model(
             initial_spectrum_weight=initial_spectrum_weight,
             known_spectra=known_spectra,
             known_species=known_species,
+            fix_initial_spectrum=fix_initial_spectrum,
+            fix_final_spectrum=fix_final_spectrum,
             progress_callback=progress_callback,
         )
     raise ValueError(f"Unknown kinetic model: {model}")
@@ -1417,9 +1450,12 @@ def fit_model_with_auto_k_max(
     auto_expand: bool,
     expand_factor: float,
     max_expand_steps: int,
+    hss_ratio: float = 20.0,
     initial_spectrum_weight: float = 0.0,
     known_spectra: np.ndarray | None = None,
     known_species: tuple[str, ...] = (),
+    fix_initial_spectrum: bool = False,
+    fix_final_spectrum: bool = False,
     progress_callback: ProgressCallback | None = None,
 ) -> tuple[FitResult, tuple[float, float]]:
     """Fit a model, expanding the upper k bound when fitted constants hit it."""
@@ -1436,9 +1472,12 @@ def fit_model_with_auto_k_max(
         n_components=n_components,
         method=method,
         k_bounds=(k_min, k_max),
+        hss_ratio=hss_ratio,
         initial_spectrum_weight=initial_spectrum_weight,
         known_spectra=known_spectra,
         known_species=known_species,
+        fix_initial_spectrum=fix_initial_spectrum,
+            fix_final_spectrum=fix_final_spectrum,
         progress_callback=progress_callback,
     )
 
@@ -1467,9 +1506,12 @@ def fit_model_with_auto_k_max(
             n_components=n_components,
             method=method,
             k_bounds=(k_min, k_max),
+            hss_ratio=hss_ratio,
             initial_spectrum_weight=initial_spectrum_weight,
             known_spectra=known_spectra,
             known_species=known_species,
+            fix_initial_spectrum=fix_initial_spectrum,
+            fix_final_spectrum=fix_final_spectrum,
             progress_callback=progress_callback,
         )
 
