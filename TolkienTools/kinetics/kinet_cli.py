@@ -66,12 +66,11 @@ class FitProgress:
 
     def _write_line(self, done: bool) -> None:
         elapsed = time.monotonic() - self.started
-        width = 18
         if done:
-            bar = "[" + "=" * width + "]"
+            activity = "[done]"
         else:
-            position = (self.evaluations // 3) % width
-            bar = "[" + "." * position + ">" + "." * (width - position - 1) + "]"
+            frames = ("|", "/", "-", "\\")
+            activity = f"[{frames[self.evaluations % len(frames)]}]"
         best = (
             "best n/a"
             if not np.isfinite(self.best_error)
@@ -83,7 +82,7 @@ class FitProgress:
         )
         status = "done" if done else "fitting"
         line = (
-            f"\r{bar} {status}: eval {self.evaluations}  "
+            f"\r{activity} {status}: eval {self.evaluations}  "
             f"{best}  elapsed {elapsed:.1f}s"
         )
         if params:

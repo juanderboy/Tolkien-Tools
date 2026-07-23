@@ -351,6 +351,7 @@ def optimize_kinetic_parameters(
     parameter_names: tuple[str, ...],
     k_bounds: tuple[float, float],
     parameter_bounds: dict[str, tuple[float, float]] | None = None,
+    initial_parameters: dict[str, float] | None = None,
     progress_callback: ProgressCallback | None = None,
     optimizer: str = "hybrid",
     max_starts: int | None = None,
@@ -375,6 +376,20 @@ def optimize_kinetic_parameters(
     upper = np.array([bound[1] for bound in log_bounds])
 
     center = lower + 0.5 * (upper - lower)
+    if initial_parameters:
+        unknown = set(initial_parameters) - set(parameter_names)
+        if unknown:
+            raise ValueError(
+                "Initial values provided for unknown parameters: "
+                + ", ".join(sorted(unknown))
+            )
+        for index, name in enumerate(parameter_names):
+            if name not in initial_parameters:
+                continue
+            value = initial_parameters[name]
+            if not np.isfinite(value) or value <= 0:
+                raise ValueError(f"Initial value for {name} must be positive and finite")
+            center[index] = np.clip(np.log(value), lower[index], upper[index])
     starts = [center]
     for i in range(len(parameter_names)):
         for fraction in (0.25, 0.75):
@@ -404,7 +419,10 @@ def optimize_kinetic_parameters(
                 clipped_start,
                 method="Powell",
                 bounds=log_bounds,
-                options={"ftol": 1e-6, "xtol": 1e-6, "maxiter": 1000},
+                # The profiled NNLS objective is only piecewise smooth. Tighter
+                # tolerances add hundreds of evaluations without a stable
+                # improvement in the fitted residual.
+                options={"ftol": 1e-4, "xtol": 1e-4, "maxiter": 300},
             )
             if best is None or opt.fun < best.fun:
                 best = opt
@@ -858,8 +876,17 @@ def fit_mbfe3_sulfide_binding_autocatalytic(
         parameter_names,
         k_bounds,
         parameter_bounds=parameter_bounds,
+        initial_parameters={
+            "k_on": 7e-1,
+            "k_slow": 5e-4,
+            "k_auto": 2e-5,
+        },
         progress_callback=progress_callback,
         optimizer="powell",
+        # In log space Powell reliably explores all three kinetic dimensions
+        # from the bounds' midpoint. The generic seven-start search repeats
+        # essentially the same fit for this model at substantial cost.
+        max_starts=1,
     )
     known_scale_report = extract_known_scale_report(params, known_species)
     known_scale_by_index = known_scale_parameters(
@@ -1426,7 +1453,9 @@ def fit_model(
 
 def is_near_bound(value: float, bound: float) -> bool:
     """Return whether value is numerically close to a search bound."""
-    return np.isclose(np.log(value), np.log(bound), atol=1e-5, rtol=0.0)
+    # Match the log-space optimizer tolerance so a converged value just inside
+    # the boundary still triggers bound reporting and automatic expansion.
+    return np.isclose(np.log(value), np.log(bound), atol=5e-4, rtol=0.0)
 
 
 

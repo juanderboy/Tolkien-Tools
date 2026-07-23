@@ -93,7 +93,10 @@ def concentration_profile_mbfe3_sulfide_binding_autocatalytic(
         (0.0, float(t[-1])),
         (c0, 0.0, 0.0),
         t_eval=t,
-        method="DOP853",
+        # The binding phase can be orders of magnitude faster than the
+        # reduction phase. LSODA avoids the very small explicit steps that
+        # DOP853 takes for those stiff trial parameter combinations.
+        method="LSODA",
         rtol=1e-8,
         atol=max(c0, 1.0) * 1e-10,
     )
