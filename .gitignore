@@ -20,3 +20,7 @@ htmlcov/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Local Codex/agent configuration
+.codex
+.agents/
