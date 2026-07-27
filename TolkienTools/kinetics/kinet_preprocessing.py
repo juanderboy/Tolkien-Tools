@@ -370,6 +370,7 @@ def ask_preprocessing_choices(
     final_spectrum_label: str | None = None,
     default_fix_final_spectrum: bool = False,
     final_spectrum_unavailable_reason: str | None = None,
+    overview_auto_region: tuple[float, float] | None = None,
 ) -> tuple[
     list[int],
     float | None,
@@ -486,10 +487,27 @@ def ask_preprocessing_choices(
         window_width=baseline_window,
     )
     print()
-    print(
-        "Automatic baseline suggestion: "
-        f"{auto_region[0]:g}-{auto_region[1]:g} nm"
-    )
+    if overview_auto_region is not None and not np.allclose(
+        auto_region,
+        overview_auto_region,
+    ):
+        print(
+            "La region automatica cambio porque ahora se calcula solamente con "
+            "los espectros retenidos despues de la poda temporal:"
+        )
+        print(
+            "  Panel inicial (todos los espectros): "
+            f"{overview_auto_region[0]:g}-{overview_auto_region[1]:g} nm"
+        )
+        print(
+            "  Sugerencia actual (espectros retenidos): "
+            f"{auto_region[0]:g}-{auto_region[1]:g} nm"
+        )
+    else:
+        print(
+            "Automatic baseline suggestion: "
+            f"{auto_region[0]:g}-{auto_region[1]:g} nm"
+        )
     print("Baseline correction options:")
     print(f"  1. Accept automatic region {auto_region[0]:g}-{auto_region[1]:g} nm")
     print("  2. Type a manual wavelength range, e.g. 760-820")
@@ -571,6 +589,7 @@ def preprocess_experiment(
     final_spectrum_label: str | None = None,
     default_fix_final_spectrum: bool = False,
     final_spectrum_unavailable_reason: str | None = None,
+    overview_auto_region: tuple[float, float] | None = None,
 ) -> tuple[
     Experiment,
     tuple[float, float],
@@ -661,6 +680,7 @@ def preprocess_experiment(
             final_spectrum_label=final_spectrum_label,
             default_fix_final_spectrum=fix_final_spectrum,
             final_spectrum_unavailable_reason=final_spectrum_unavailable_reason,
+            overview_auto_region=overview_auto_region,
         )
         corrected, cropped, used_region = apply_preprocessing_choices(
             args,

@@ -296,7 +296,7 @@ def print_exploration_message() -> None:
 def plot_experiment_overview(
     experiment: Experiment,
     baseline_window: float,
-) -> None:
+) -> tuple[float, float] | None:
     """Show raw spectra, baseline preview and singular values before choices."""
     import sys
 
@@ -358,6 +358,7 @@ def plot_experiment_overview(
             zorder=0,
         )
     except ValueError as exc:
+        auto_region = None
         ax_baseline.text(
             0.5,
             0.5,
@@ -392,6 +393,7 @@ def plot_experiment_overview(
 
     sys.stdout.flush()
     plt.show()
+    return auto_region
 
 
 

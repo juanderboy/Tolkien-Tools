@@ -584,9 +584,10 @@ def main() -> None:
     interactive = not args.no_plot and not args.skip_preprocess_dialog
     fix_initial_spectrum = args.fix_initial_spectrum
     fix_final_spectrum = args.fix_final_spectrum
+    overview_auto_region = None
     if interactive:
         print_exploration_message()
-        plot_experiment_overview(
+        overview_auto_region = plot_experiment_overview(
             experiment,
             baseline_window=args.baseline_window,
         )
@@ -635,6 +636,7 @@ def main() -> None:
         final_spectrum_label=last_species if interactive else None,
         default_fix_final_spectrum=fix_final_spectrum,
         final_spectrum_unavailable_reason=final_spectrum_unavailable_reason,
+        overview_auto_region=overview_auto_region,
     )
     if allowed_work_range is not None:
         print(f"Fit wavelength range selected: {work_range[0]:g}-{work_range[1]:g} nm")
