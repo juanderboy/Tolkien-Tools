@@ -27,6 +27,12 @@ Modules can also be selected directly:
 ./tolkien-tools 4   # multiwavelength kinetics
 ```
 
+The charge/spin module can also propose ligand groups for transition-metal
+coordination complexes from a representative geometry. It reports
+metal--donor contacts, denticity, composition, and uncoordinated molecular
+components, and provides an interactive color-coded viewer before the groups
+are accepted for statistical analysis.
+
 Run the dependency guide with:
 
 ```bash

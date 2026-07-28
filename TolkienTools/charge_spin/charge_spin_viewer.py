@@ -8,6 +8,7 @@ interactive 3D representation for visual inspection.
 import glob
 import math
 import os
+import subprocess
 import webbrowser
 from pathlib import Path
 
@@ -114,12 +115,44 @@ def find_default_xyz_for_spin_viewer():
     return xyz_files[0] if xyz_files else None
 
 
+def is_wsl_environment():
+    """
+    Return True when running inside Windows Subsystem for Linux.
+    """
+    if os.environ.get("WSL_DISTRO_NAME") or os.environ.get("WSL_INTEROP"):
+        return True
+    try:
+        kernel_release = Path("/proc/sys/kernel/osrelease").read_text().lower()
+    except OSError:
+        return False
+    return "microsoft" in kernel_release or "wsl" in kernel_release
+
+
 def open_html_viewer(path):
     """
-    Try to open a generated HTML viewer in the default browser.
+    Open the viewer location in WSL or the HTML in a native Linux browser.
     """
+    resolved_path = Path(path).resolve()
+    if is_wsl_environment():
+        try:
+            subprocess.Popen(
+                ["explorer.exe", "."],
+                cwd=str(resolved_path.parent),
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except Exception as exc:
+            print(f"[WARN] Could not open the viewer folder in Windows Explorer: {exc}")
+            print(f"[INFO] Open this file manually: '{resolved_path}'")
+            return
+        print(
+            f"[OK] Opened '{resolved_path.parent}' in Windows Explorer. "
+            f"Double-click '{resolved_path.name}' to view it."
+        )
+        return
+
     try:
-        opened = webbrowser.open(Path(path).resolve().as_uri(), new=2)
+        opened = webbrowser.open(resolved_path.as_uri(), new=2)
     except Exception as exc:
         print(f"[WARN] Could not open viewer automatically: {exc}")
         return
@@ -172,6 +205,113 @@ def write_orca_spin_localization_viewer(
         avg_fraction_by_atom,
         label_all_atoms=label_all_atoms,
     )
+
+
+def write_coordination_fragment_viewer_from_atoms(
+    title,
+    atoms,
+    output_path,
+    proposal,
+):
+    """
+    Write an interactive viewer colored by proposed coordination component.
+    """
+    import py3Dmol
+
+    palette = (
+        "#4E79A7", "#F28E2B", "#E15759", "#76B7B2", "#59A14F",
+        "#EDC948", "#B07AA1", "#FF9DA7", "#9C755F", "#BAB0AC",
+    )
+    component_by_atom = {}
+    color_by_component = {}
+    for idx, component in enumerate(proposal["components"]):
+        color = palette[idx % len(palette)]
+        color_by_component[component["id"]] = color
+        for atom_id in component["atom_ids"]:
+            component_by_atom[atom_id] = component
+
+    metal_by_atom = {
+        metal["atom_id"]: metal
+        for metal in proposal["metals"]
+    }
+
+    view = py3Dmol.view(width=1080, height=760)
+    view.addModel(atoms_to_mol_block(title, atoms), "mol")
+    view.setStyle({"stick": {"radius": 0.16}, "sphere": {"scale": 0.28}})
+
+    for atom in atoms:
+        atom_id = atom["index"]
+        model_index = atom["model_index"]
+        if atom_id in metal_by_atom:
+            group_label = metal_by_atom[atom_id]["id"]
+            color = "#7F7F7F"
+            view.setStyle(
+                {"index": model_index},
+                {"stick": {"radius": 0.20, "color": color},
+                 "sphere": {"scale": 0.55, "color": color}},
+            )
+        else:
+            component = component_by_atom.get(atom_id)
+            group_label = component["id"] if component is not None else "?"
+            color = color_by_component.get(group_label, "#BDBDBD")
+            view.setStyle(
+                {"index": model_index},
+                {"stick": {"radius": 0.16, "color": color},
+                 "sphere": {"scale": 0.30, "color": color}},
+            )
+
+        view.addLabel(
+            f"{atom_id} {group_label}",
+            {
+                "position": {"x": atom["x"], "y": atom["y"], "z": atom["z"]},
+                "fontColor": "black",
+                "backgroundColor": "white",
+                "backgroundOpacity": 0.75,
+                "fontSize": 11,
+                "inFront": True,
+            },
+        )
+
+    legend_lines = []
+    for metal in proposal["metals"]:
+        legend_lines.append(
+            f"<li><span style=\"color:#7F7F7F\">&#9632;</span> "
+            f"<b>{metal['id']}</b>: transition metal</li>"
+        )
+    for component in proposal["components"]:
+        color = color_by_component[component["id"]]
+        status = "coordinated" if component["coordinated"] else "not coordinated"
+        composition = " ".join(
+            f"{element}{count}" if count != 1 else element
+            for element, count in component["elements"].items()
+        )
+        donors = ", ".join(str(value) for value in component["donor_atom_ids"]) or "none"
+        legend_lines.append(
+            f"<li><span style=\"color:{color}\">&#9632;</span> "
+            f"<b>{component['id']}</b>: {status}; {component['n_atoms']} atoms; "
+            f"{composition}; denticity {component['denticity']}; "
+            f"donor atoms: {donors}</li>"
+        )
+
+    view.zoomTo()
+    body = view._make_html()
+    html = (
+        "<!doctype html>\n"
+        "<html>\n"
+        "<head><meta charset=\"utf-8\"><title>Coordination fragment proposal</title></head>\n"
+        "<body style=\"font-family: sans-serif;\">\n"
+        f"<h3 style=\"margin: 8px 0;\">Coordination fragment proposal | {title}</h3>\n"
+        "<p>Distance-based proposal. Review coordination and component boundaries "
+        "before using them in the population analysis.</p>\n"
+        "<ul style=\"line-height:1.5;\">\n"
+        + "\n".join(legend_lines)
+        + "\n</ul>\n"
+        + body
+        + "\n</body>\n</html>\n"
+    )
+    with open(output_path, "w") as out:
+        out.write(html)
+    print(f"[OK] Coordination-fragment viewer saved to '{output_path}'.")
 
 
 def find_orca_geometry_file_for_viewer(orca_files):

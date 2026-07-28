@@ -3,7 +3,7 @@
 Rutina conectada actualmente:
 
 ```text
-/home/juanderboy/scripts/TolkienTools/charge_spin/charge_spin_analysis.py
+TolkienTools/charge_spin/charge_spin_analysis.py
 ```
 
 Uso desde el menu maestro:
@@ -25,6 +25,8 @@ Estructura interna:
 - `charge_spin_stats.py`: KDE, histogramas, normalizacion y checks de spin.
 - `charge_spin_plotting.py`: figuras de histogramas y series temporales.
 - `charge_spin_viewer.py`: visor HTML de localizacion de spin y geometria.
+- `charge_spin_coordination.py`: propuesta de ligandos y componentes
+  moleculares para complejos de coordinacion.
 - `charge_spin_global.py`: comparaciones globales entre subdirectorios.
 
 En el modo global entre subdirectorios, el programa genera siempre la figura
@@ -33,6 +35,14 @@ pregunta si se quiere una figura de paper; si se responde que si, agrega
 `global_<analisis>_histograms_paper.png`, una version limpia sin titulos,
 leyendas, nombres de ejes ni numeros de ejes, pero conservando las marcas de
 ticks para editar externamente.
+
+El modo global acepta tanto atomos individuales como actores definidos en el
+modo de fragmentos. La opcion de reutilizar entidades lee
+`spin_fragment_definitions.dat` y busca las series `actor_<nombre>_*` del
+ultimo analisis, evitando mezclar archivos viejos de atomos o fragmentos.
+Tambien se pueden ingresar nombres como `Fe_Porphyrin`, `X1` o `X2`
+manualmente. Guiones, puntos y guiones bajos se normalizan para poder comparar,
+por ejemplo, `Fe-Porphyrin` con `Fe_Porphyrin` entre sistemas.
 
 Para poblaciones de spin, el flujo interactivo permite elegir como se arman la
 estadistica, los histogramas y los archivos de salida:
@@ -51,16 +61,38 @@ agrupa como una entidad `resto`, con su propio histograma.
 
 Tambien existe un modo de fragmentos moleculares para analizar zonas como
 Fe/porfirina/agua/histidina. Antes de pedir la composicion de cada fragmento,
-el flujo genera `spin_fragment_numbering_viewer.html` con todos los atomos
-numerados. Despues se ingresan nombres de fragmentos y listas de atomos; cada
-fragmento se analiza como una entidad cuyo valor de spin por snapshot es la suma
-de los spines atomicos que lo forman. Las listas aceptan atomos separados por
-espacios o comas, rangos como `10-18`, y el token `remaining` para tomar todos
-los atomos aun no asignados a fragmentos previos. Las definiciones usadas se
-guardan en `spin_fragment_definitions.dat` y las salidas principales llevan el
-sufijo `with_fragments`. Si quedan atomos sin asignar a ningun fragmento, el
-programa avisa cuales son y permite redefinir los fragmentos; si se acepta
-continuar, los agrupa automaticamente como `resto` y genera su histograma.
+el flujo permite elegir entre definicion manual y una propuesta automatica
+para complejos de coordinacion.
+
+La propuesta automatica detecta metales de transicion, infiere contactos
+metal-atomo por distancia, retira los metales del grafo molecular y asigna
+`L1`, `L2`, ..., a los componentes conectados restantes. Para cada componente
+informa si esta coordinado, su numero y tipos de atomos, los atomos donores y
+la denticidad. Un componente cercano pero no enlazado al metal queda marcado
+explicitamente como no coordinado. La propuesta se guarda en
+`coordination_ligand_proposal.dat` y se muestra en
+`coordination_ligand_viewer.html`, con un color por componente y etiquetas de
+indices y grupos. Es una ayuda basada en distancias y debe revisarse antes de
+aceptarla.
+
+En WSL, cuando se pide abrir un visor, la rutina ejecuta `explorer.exe .` en
+la carpeta que contiene el HTML para evitar los errores de `xdg-open`; el
+archivo se abre manualmente con doble clic. En Linux nativo intenta abrir el
+HTML con el navegador predeterminado.
+
+Al definir los fragmentos se pueden combinar los grupos detectados y los
+metales, por ejemplo `Fe88 + L1`, además de usar atomos separados por espacios
+o comas, rangos como `10-18`, y el token `remaining`. En modo manual se genera
+`spin_fragment_numbering_viewer.html` con todos los atomos numerados. Cada
+fragmento se analiza como una entidad cuyo valor de spin por snapshot es la
+suma de los spines atomicos que lo forman. Las definiciones usadas se guardan
+en `spin_fragment_definitions.dat` y las salidas principales llevan el sufijo
+`with_fragments`. Si quedan atomos sin asignar a ningun fragmento, el programa
+avisa cuales son y permite dejarlos fuera del analisis, agruparlos
+automaticamente como `resto`, o redefinir los fragmentos. Si se dejan fuera,
+el modo de spin crudo conserva las poblaciones de los fragmentos elegidos y el
+modo de fraccion normaliza cada snapshot usando solamente la suma de esos
+fragmentos.
 
 En modo ORCA, aunque el histograma se arme con muchos `SP_*.out`, el visor
 `spin_localization_viewer.html` usa una unica geometria representativa: toma el

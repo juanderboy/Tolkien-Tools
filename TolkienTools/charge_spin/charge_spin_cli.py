@@ -26,6 +26,12 @@ from charge_spin_common import (
     resolve_histogram_bins_spec,
     sanitize_output_token,
 )
+from charge_spin_coordination import (
+    format_element_composition,
+    proposal_named_groups,
+    propose_coordination_fragments,
+    write_coordination_proposal_report,
+)
 from charge_spin_global import (
     collect_global_hist_data,
     discover_global_analysis_dirs,
@@ -64,22 +70,36 @@ from charge_spin_viewer import (
     find_default_xyz_for_spin_viewer,
     find_orca_geometry_file_for_viewer,
     open_html_viewer,
+    parse_first_xyz_frame,
+    parse_orca_cartesian_coordinates,
+    write_coordination_fragment_viewer_from_atoms,
     write_orca_spin_localization_viewer,
     write_spin_localization_viewer,
 )
 
 
-def parse_atom_selection_with_ranges(atom_ids_str, remaining_atom_ids=None):
+def parse_atom_selection_with_ranges(
+    atom_ids_str,
+    remaining_atom_ids=None,
+    named_groups=None,
+):
     """
-    Parse atom selections accepting space-separated IDs and simple ranges.
+    Parse atom selections accepting IDs, ranges and optional named groups.
     """
+    named_groups = {
+        str(name).lower(): list(atom_ids)
+        for name, atom_ids in (named_groups or {}).items()
+    }
     atom_ids = []
-    for token in atom_ids_str.replace(",", " ").split():
-        if token.lower() == "remaining":
+    for token in atom_ids_str.replace(",", " ").replace("+", " ").split():
+        normalized_token = token.lower()
+        if normalized_token == "remaining":
             if remaining_atom_ids is None:
                 print("Error: 'remaining' is only available while defining molecular fragments.")
                 sys.exit(1)
             atom_ids.extend(remaining_atom_ids)
+        elif normalized_token in named_groups:
+            atom_ids.extend(named_groups[normalized_token])
         elif "-" in token:
             parts = token.split("-")
             if len(parts) != 2 or not parts[0].isdigit() or not parts[1].isdigit():
@@ -194,7 +214,7 @@ def write_numbered_atom_viewer_for_fragment_selection(
         )
     print(f"[INFO] Use '{output_path}' to read atom numbers before defining fragments.")
     open_choice = prompt_numbered_choice(
-        "Open the atom-numbering viewer in the default browser?",
+        "Open the atom-numbering viewer now? (WSL opens its folder in Windows Explorer)",
         [("Yes", True), ("No", False)],
         default_idx=0
     )
@@ -202,13 +222,90 @@ def write_numbered_atom_viewer_for_fragment_selection(
         open_html_viewer(output_path)
 
 
-def prompt_spin_fragment_configs(available_atom_ids, atom_type_map):
+def build_coordination_fragment_proposal(orca_mode, orca_files):
+    """
+    Build, report and visualize a distance-based coordination proposal.
+    """
+    if orca_mode:
+        geometry_path = find_orca_geometry_file_for_viewer(orca_files)
+        if geometry_path is None:
+            raise ValueError(
+                "none of the ORCA files has a CARTESIAN COORDINATES (ANGSTROEM) block"
+            )
+        title, atoms = parse_orca_cartesian_coordinates(geometry_path)
+        print(f"[INFO] Using '{geometry_path}' for coordination analysis.")
+    else:
+        geometry_path = find_default_xyz_for_spin_viewer()
+        if geometry_path is None:
+            geometry_path = input(
+                "XYZ file for coordination analysis was not autodetected. Enter path: "
+            ).strip()
+        if not geometry_path or not os.path.isfile(geometry_path):
+            raise ValueError("no valid XYZ file was selected")
+        comment, atoms = parse_first_xyz_frame(geometry_path)
+        title = (
+            f"{os.path.basename(geometry_path)} | {comment or 'XYZ first frame'} "
+            "| indices 1-based"
+        )
+        print(f"[INFO] Using '{geometry_path}' for coordination analysis.")
+
+    proposal = propose_coordination_fragments(atoms)
+    if not proposal["metals"]:
+        raise ValueError("no transition metal was detected in the representative geometry")
+    if not proposal["components"]:
+        raise ValueError("no molecular components could be proposed")
+
+    print("")
+    print("Distance-based coordination proposal:")
+    for metal in proposal["metals"]:
+        print(f"  {metal['id']}: transition metal atom")
+    for component in proposal["components"]:
+        status = "coordinated" if component["coordinated"] else "NOT coordinated"
+        donors = ", ".join(str(value) for value in component["donor_atom_ids"]) or "none"
+        print(
+            f"  {component['id']}: {status}; {component['n_atoms']} atoms; "
+            f"{format_element_composition(component['elements'])}; "
+            f"denticity={component['denticity']}; donor atoms={donors}"
+        )
+
+    write_coordination_proposal_report(proposal)
+    output_path = "coordination_ligand_viewer.html"
+    write_coordination_fragment_viewer_from_atoms(
+        title,
+        atoms,
+        output_path,
+        proposal,
+    )
+    open_choice = prompt_numbered_choice(
+        "Open the coordination-fragment viewer now? (WSL opens its folder in Windows Explorer)",
+        [("Yes", True), ("No", False)],
+        default_idx=0,
+    )
+    if open_choice:
+        open_html_viewer(output_path)
+
+    use_choice = prompt_numbered_choice(
+        "Use these detected groups while defining analysis fragments?",
+        [("Yes", True), ("No, define fragments manually", False)],
+        default_idx=0,
+    )
+    return proposal_named_groups(proposal) if use_choice else None
+
+
+def prompt_spin_fragment_configs(
+    available_atom_ids,
+    atom_type_map,
+    named_groups=None,
+):
     """
     Prompt molecular fragments and return them as grouped actor configs.
     """
     print("")
     print("Define molecular fragments. Each fragment spin is the sum of its atom spins per snapshot.")
     print("Atom lists accept spaces, commas, ranges such as 1 2 3 10-18, and the token 'remaining'.")
+    if named_groups:
+        group_names = " ".join(name.upper() for name in named_groups)
+        print(f"Detected-group tokens can be combined with '+' (for example, Fe88 + L1): {group_names}")
     print("Leave the fragment name blank after adding at least one fragment to finish.")
 
     available_atom_ids = list(available_atom_ids)
@@ -228,7 +325,11 @@ def prompt_spin_fragment_configs(available_atom_ids, atom_type_map):
 
             atoms_str = input(f"Atoms in fragment '{label}': ").strip()
             remaining_atom_ids = [aid for aid in available_atom_ids if aid not in used_atoms]
-            atom_ids = parse_atom_selection_with_ranges(atoms_str, remaining_atom_ids=remaining_atom_ids)
+            atom_ids = parse_atom_selection_with_ranges(
+                atoms_str,
+                remaining_atom_ids=remaining_atom_ids,
+                named_groups=named_groups,
+            )
             if not atom_ids:
                 print("Error: no atoms were provided for this fragment.")
                 sys.exit(1)
@@ -278,14 +379,21 @@ def prompt_spin_fragment_configs(available_atom_ids, atom_type_map):
         print("")
         print(f"Faltaron asignar los atomos {missing_summary} a algun fragmento.")
         resolution = prompt_numbered_choice(
-            "Estas seguro de continuar?",
-            [("Yes, add them as 'resto'", "resto"),
+            "How should the unassigned atoms be handled?",
+            [("Continue and leave them outside the analysis", "exclude"),
+             ("Add them as 'resto'", "resto"),
              ("No, redefine the fragments", "redefine")],
-            default_idx=1
+            default_idx=0
         )
         if resolution == "redefine":
             print("[INFO] Fragment definitions will be entered again.")
             continue
+        if resolution == "exclude":
+            print(
+                "[INFO] Unassigned atoms will remain outside the fragment analysis. "
+                "Raw spins and spin fractions will use only the selected fragments."
+            )
+            return fragments
 
         auto_resto_label = "resto"
         auto_resto_id = "fragment_resto"
@@ -356,7 +464,8 @@ def main():
         atom_map = {}
         if atom_selection_mode == "mismos":
             atom_ids_str = input(
-                "Enter atoms/entities to compare, separated by spaces (for example: 88 89 coque): "
+                "Enter atoms/entities to compare, separated by spaces "
+                "(for example: 88 Fe_Porphyrin X1): "
             ).strip()
             atom_ids = parse_global_entity_list(atom_ids_str)
             if not atom_ids:
@@ -367,7 +476,8 @@ def main():
         elif atom_selection_mode == "especificos":
             for system_name in system_names:
                 atom_ids_str = input(
-                    f"Enter atoms/entities to compare for {system_name}, separated by spaces (Enter = skip system; use 'coque' if available): "
+                    f"Enter atoms/entities to compare for {system_name}, "
+                    "separated by spaces (Enter = skip system): "
                 ).strip()
                 if atom_ids_str == "":
                     atom_map[system_name] = []
@@ -468,7 +578,7 @@ def main():
             if missing:
                 print(f"[WARN] Some time-series files are missing for '{selected_analysis_kind}' and were omitted from the plot:")
                 for system_name, aid, fname in missing[:20]:
-                    entity_label = "coque" if aid == "coque" else f"atom {aid}"
+                    entity_label = f"atom {aid}" if isinstance(aid, int) else f"entity {aid}"
                     print(f"  {system_name}: {entity_label} -> {os.path.basename(fname)}")
                 if len(missing) > 20:
                     print(f"  ... and {len(missing) - 20} more cases.")
@@ -897,7 +1007,7 @@ def main():
                         avg_fraction_by_atom,
                     )
                 open_choice = prompt_numbered_choice(
-                    "Open the spin-localization viewer in the default browser?",
+                    "Open the spin-localization viewer now? (WSL opens its folder in Windows Explorer)",
                     [("Yes", True), ("No", False)],
                     default_idx=0
                 )
@@ -914,17 +1024,39 @@ def main():
         atom_type_map = {aid: atype for aid, atype in spin_atoms_list}
         available_atom_ids = set(all_spin_atom_ids)
 
-        try:
-            write_numbered_atom_viewer_for_fragment_selection(
-                orca_mode,
-                orca_files if orca_mode else [],
-                all_spin_atom_ids,
-                atom_type_map,
-            )
-        except Exception as exc:
-            print(f"[WARN] Atom-numbering viewer was skipped: {exc}")
+        fragment_construction_mode = prompt_numbered_choice(
+            "Fragment construction mode:",
+            [("Detect a coordination complex and propose ligand groups", "coordination"),
+             ("Define fragments manually", "manual")],
+            default_idx=0,
+        )
+        named_groups = None
+        if fragment_construction_mode == "coordination":
+            try:
+                named_groups = build_coordination_fragment_proposal(
+                    orca_mode,
+                    orca_files if orca_mode else [],
+                )
+            except Exception as exc:
+                print(f"[WARN] Automatic coordination proposal was skipped: {exc}")
+                print("[INFO] Falling back to manual fragment definition.")
 
-        actor_config = prompt_spin_fragment_configs(all_spin_atom_ids, atom_type_map)
+        if named_groups is None:
+            try:
+                write_numbered_atom_viewer_for_fragment_selection(
+                    orca_mode,
+                    orca_files if orca_mode else [],
+                    all_spin_atom_ids,
+                    atom_type_map,
+                )
+            except Exception as exc:
+                print(f"[WARN] Atom-numbering viewer was skipped: {exc}")
+
+        actor_config = prompt_spin_fragment_configs(
+            all_spin_atom_ids,
+            atom_type_map,
+            named_groups=named_groups,
+        )
         atom_ids = []
         spin_consistency_atom_ids = selected_atom_ids_from_actor_config(actor_config)
         write_fragment_definitions_report(actor_config, atom_type_map)

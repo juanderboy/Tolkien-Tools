@@ -131,10 +131,10 @@ def parse_atom_id_list(atom_ids_str):
 def parse_global_entity_list(entity_ids_str):
     """
     Convert a space-separated string into global entity IDs.
-    Accept integers and the special token 'coque'.
+    Accept atom numbers, arbitrary actor labels, and the legacy token 'coque'.
     """
     entity_ids = []
-    for token in entity_ids_str.split():
+    for token in entity_ids_str.replace(",", " ").split():
         lowered = token.lower()
         if lowered == "coque":
             entity_ids.append("coque")
@@ -142,9 +142,23 @@ def parse_global_entity_list(entity_ids_str):
         try:
             entity_ids.append(int(token))
         except ValueError:
-            print("Error: global selections must be atom numbers and may optionally include the token 'coque'.")
-            sys.exit(1)
+            normalized = normalize_global_actor_id(token)
+            if normalized:
+                entity_ids.append(normalized)
     return entity_ids
+
+
+def normalize_global_actor_id(value):
+    """
+    Normalize equivalent actor labels for cross-system comparison.
+
+    For example, ``Fe-Porphyrin`` and ``Fe_Porphyrin`` share one global ID.
+    """
+    token = sanitize_output_token(value)
+    if token.startswith("actor_"):
+        token = token[len("actor_"):]
+    token = re.sub(r"[._-]+", "_", token).strip("_")
+    return token or "unnamed"
 
 
 def get_spin_representation_config(choice):

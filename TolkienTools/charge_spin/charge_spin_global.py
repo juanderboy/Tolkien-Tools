@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy.stats import gaussian_kde
 
-from charge_spin_common import sanitize_output_token
+from charge_spin_common import normalize_global_actor_id, sanitize_output_token
 from charge_spin_io import load_atom_timeseries_file
 from charge_spin_stats import analyze_modes_kde, get_histogram_edges
 
@@ -27,7 +27,7 @@ def discover_global_analysis_dirs(base_dir):
         fullpath = os.path.join(base_dir, entry)
         if not os.path.isdir(fullpath):
             continue
-        if any(
+        has_marker = any(
             os.path.exists(os.path.join(fullpath, marker))
             for marker in (
                 "qs_histograms.png",
@@ -47,9 +47,44 @@ def discover_global_analysis_dirs(base_dir):
                 "chelpg_mulliken_histograms_with_coque.png",
                 "chelpg_hirshfeld_histograms_with_coque.png",
             )
-        ):
+        )
+        has_entity_series = bool(
+            glob.glob(os.path.join(fullpath, "atom_*_timeseries.dat"))
+            or glob.glob(os.path.join(fullpath, "actor_*_timeseries.dat"))
+        )
+        if has_marker or has_entity_series:
             subdirs.append(fullpath)
     return subdirs
+
+
+def find_global_entity_timeseries(system_dir, entity_id, suffix):
+    """
+    Resolve an atom or arbitrary grouped actor to its combined time-series file.
+    """
+    if isinstance(entity_id, int):
+        candidate = os.path.join(system_dir, f"atom_{entity_id}_{suffix}_timeseries.dat")
+        return candidate if os.path.exists(candidate) else None
+
+    if entity_id == "coque":
+        legacy = os.path.join(
+            system_dir,
+            f"actor_proposed_spin_pool_{suffix}_timeseries.dat",
+        )
+        if os.path.exists(legacy):
+            return legacy
+
+    target_id = normalize_global_actor_id(entity_id).casefold()
+    pattern = os.path.join(system_dir, f"actor_*_{suffix}_timeseries.dat")
+    actor_regex = re.compile(
+        rf"^actor_(.+)_{re.escape(suffix)}_timeseries\.dat$"
+    )
+    for candidate in sorted(glob.glob(pattern)):
+        match = actor_regex.match(os.path.basename(candidate))
+        if not match:
+            continue
+        if normalize_global_actor_id(match.group(1)).casefold() == target_id:
+            return candidate
+    return None
 
 
 def collect_global_hist_data(base_dir, atom_map, analysis_kind):
@@ -82,18 +117,21 @@ def collect_global_hist_data(base_dir, atom_map, analysis_kind):
         for aid in atom_map.get(system_name, []):
             fname = None
             for suffix in suffixes:
-                if aid == "coque":
-                    candidate = os.path.join(system_dir, f"actor_proposed_spin_pool_{suffix}_timeseries.dat")
-                else:
-                    candidate = os.path.join(system_dir, f"atom_{aid}_{suffix}_timeseries.dat")
-                if os.path.exists(candidate):
+                candidate = find_global_entity_timeseries(system_dir, aid, suffix)
+                if candidate is not None:
                     fname = candidate
                     break
             if fname is None:
-                if aid == "coque":
-                    expected = os.path.join(system_dir, f"actor_proposed_spin_pool_{suffixes[0]}_timeseries.dat")
+                if isinstance(aid, int):
+                    expected = os.path.join(
+                        system_dir,
+                        f"atom_{aid}_{suffixes[0]}_timeseries.dat",
+                    )
                 else:
-                    expected = os.path.join(system_dir, f"atom_{aid}_{suffixes[0]}_timeseries.dat")
+                    expected = os.path.join(
+                        system_dir,
+                        f"actor_{sanitize_output_token(aid)}_{suffixes[0]}_timeseries.dat",
+                    )
                 missing.append((system_name, aid, expected))
                 continue
 
@@ -137,15 +175,54 @@ def infer_entities_from_previous_analysis(system_dir, analysis_kind):
     entity_ids = []
     for suffix in get_global_analysis_suffixes(analysis_kind):
         found_for_suffix = []
-        pattern = os.path.join(system_dir, f"atom_*_{suffix}_timeseries.dat")
-        for fname in sorted(glob.glob(pattern)):
-            m = re.match(rf"^atom_(\d+)_{re.escape(suffix)}_timeseries\.dat$", os.path.basename(fname))
-            if m:
-                found_for_suffix.append(int(m.group(1)))
+        fragment_report = os.path.join(system_dir, "spin_fragment_definitions.dat")
+        fragment_labels = []
+        if os.path.exists(fragment_report):
+            with open(fragment_report, "r") as report:
+                for line in report:
+                    stripped = line.strip()
+                    if not stripped or stripped.startswith("#"):
+                        continue
+                    parts = stripped.split()
+                    if len(parts) >= 2 and parts[1] not in fragment_labels:
+                        fragment_labels.append(parts[1])
 
-        actor_fname = os.path.join(system_dir, f"actor_proposed_spin_pool_{suffix}_timeseries.dat")
-        if os.path.exists(actor_fname):
-            found_for_suffix.append("coque")
+        if fragment_labels:
+            for label in fragment_labels:
+                entity_id = normalize_global_actor_id(label)
+                if find_global_entity_timeseries(system_dir, entity_id, suffix):
+                    found_for_suffix.append(entity_id)
+        else:
+            atom_pattern = os.path.join(
+                system_dir,
+                f"atom_*_{suffix}_timeseries.dat",
+            )
+            for fname in sorted(glob.glob(atom_pattern)):
+                match = re.match(
+                    rf"^atom_(\d+)_{re.escape(suffix)}_timeseries\.dat$",
+                    os.path.basename(fname),
+                )
+                if match:
+                    found_for_suffix.append(int(match.group(1)))
+
+            actor_pattern = os.path.join(
+                system_dir,
+                f"actor_*_{suffix}_timeseries.dat",
+            )
+            actor_regex = re.compile(
+                rf"^actor_(.+)_{re.escape(suffix)}_timeseries\.dat$"
+            )
+            for fname in sorted(glob.glob(actor_pattern)):
+                match = actor_regex.match(os.path.basename(fname))
+                if not match:
+                    continue
+                actor_token = match.group(1)
+                if actor_token == "proposed_spin_pool":
+                    found_for_suffix.append("coque")
+                else:
+                    found_for_suffix.append(
+                        normalize_global_actor_id(actor_token)
+                    )
 
         if found_for_suffix:
             deduped = []
