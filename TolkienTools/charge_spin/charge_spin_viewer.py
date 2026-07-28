@@ -97,10 +97,11 @@ def parse_orca_cartesian_coordinates(fname):
     return f"{os.path.basename(fname)} | ORCA Cartesian coordinates | indices 0-based", atoms
 
 
-def find_default_xyz_for_spin_viewer():
+def find_default_xyz_for_spin_viewer(search_dir="."):
     """
     Return a likely XYZ file for the spin-localization viewer.
     """
+    search_dir = os.fspath(search_dir)
     candidates = (
         "qm_completo.xyz",
         "qm.xyz",
@@ -109,9 +110,10 @@ def find_default_xyz_for_spin_viewer():
         "mol.xyz",
     )
     for candidate in candidates:
-        if os.path.isfile(candidate):
-            return candidate
-    xyz_files = sorted(glob.glob("*.xyz"))
+        candidate_path = os.path.join(search_dir, candidate)
+        if os.path.isfile(candidate_path):
+            return candidate_path
+    xyz_files = sorted(glob.glob(os.path.join(search_dir, "*.xyz")))
     return xyz_files[0] if xyz_files else None
 
 

@@ -18,6 +18,28 @@ from charge_spin_io import load_atom_timeseries_file
 from charge_spin_stats import analyze_modes_kde, get_histogram_edges
 
 
+RESULTS_DIRNAME = "charge_spin_results"
+
+
+def resolve_system_analysis_dir(system_dir):
+    """
+    Prefer the dedicated results subdirectory when it contains analysis data.
+    """
+    results_dir = os.path.join(system_dir, RESULTS_DIRNAME)
+    if os.path.isdir(results_dir):
+        has_results = bool(
+            glob.glob(os.path.join(results_dir, "atom_*_timeseries.dat"))
+            or glob.glob(os.path.join(results_dir, "actor_*_timeseries.dat"))
+            or glob.glob(os.path.join(results_dir, "*_histograms*.png"))
+            or os.path.exists(
+                os.path.join(results_dir, "spin_fragment_definitions.dat")
+            )
+        )
+        if has_results:
+            return results_dir
+    return os.fspath(system_dir)
+
+
 def discover_global_analysis_dirs(base_dir):
     """
     Search immediate subdirectories for previous analysis results.
@@ -27,8 +49,9 @@ def discover_global_analysis_dirs(base_dir):
         fullpath = os.path.join(base_dir, entry)
         if not os.path.isdir(fullpath):
             continue
+        analysis_dir = resolve_system_analysis_dir(fullpath)
         has_marker = any(
-            os.path.exists(os.path.join(fullpath, marker))
+            os.path.exists(os.path.join(analysis_dir, marker))
             for marker in (
                 "qs_histograms.png",
                 "mulliken_histograms.png",
@@ -49,8 +72,8 @@ def discover_global_analysis_dirs(base_dir):
             )
         )
         has_entity_series = bool(
-            glob.glob(os.path.join(fullpath, "atom_*_timeseries.dat"))
-            or glob.glob(os.path.join(fullpath, "actor_*_timeseries.dat"))
+            glob.glob(os.path.join(analysis_dir, "atom_*_timeseries.dat"))
+            or glob.glob(os.path.join(analysis_dir, "actor_*_timeseries.dat"))
         )
         if has_marker or has_entity_series:
             subdirs.append(fullpath)
@@ -111,25 +134,30 @@ def collect_global_hist_data(base_dir, atom_map, analysis_kind):
 
     for system_dir in discover_global_analysis_dirs(base_dir):
         system_name = os.path.basename(system_dir)
+        analysis_dir = resolve_system_analysis_dir(system_dir)
         per_atom = {}
         found_any = False
 
         for aid in atom_map.get(system_name, []):
             fname = None
             for suffix in suffixes:
-                candidate = find_global_entity_timeseries(system_dir, aid, suffix)
+                candidate = find_global_entity_timeseries(
+                    analysis_dir,
+                    aid,
+                    suffix,
+                )
                 if candidate is not None:
                     fname = candidate
                     break
             if fname is None:
                 if isinstance(aid, int):
                     expected = os.path.join(
-                        system_dir,
+                        analysis_dir,
                         f"atom_{aid}_{suffixes[0]}_timeseries.dat",
                     )
                 else:
                     expected = os.path.join(
-                        system_dir,
+                        analysis_dir,
                         f"actor_{sanitize_output_token(aid)}_{suffixes[0]}_timeseries.dat",
                     )
                 missing.append((system_name, aid, expected))
@@ -172,6 +200,7 @@ def infer_entities_from_previous_analysis(system_dir, analysis_kind):
     """
     Infer the entities selected during a previous individual analysis in one system.
     """
+    system_dir = resolve_system_analysis_dir(system_dir)
     entity_ids = []
     for suffix in get_global_analysis_suffixes(analysis_kind):
         found_for_suffix = []

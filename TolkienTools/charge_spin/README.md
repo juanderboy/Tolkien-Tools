@@ -15,6 +15,12 @@ tolkien-tools
 Este modulo contiene la rutina de analisis de cargas Mulliken, CHELPG, Lowdin,
 Hirshfeld y poblaciones de spin.
 
+En el modo individual, todos los archivos generados se escriben dentro de
+`charge_spin_results/` en la carpeta desde la que se ejecuta el analisis. Esto
+incluye archivos ORCA/LIO consolidados, series, promedios, histogramas, figuras,
+reportes y visores HTML. Los outputs originales, XYZ y demas inputs permanecen
+en la carpeta principal.
+
 Estructura interna:
 
 - `charge_spin_analysis.py`: entrada compatible usada por el launcher.
@@ -43,6 +49,9 @@ ultimo analisis, evitando mezclar archivos viejos de atomos o fragmentos.
 Tambien se pueden ingresar nombres como `Fe_Porphyrin`, `X1` o `X2`
 manualmente. Guiones, puntos y guiones bajos se normalizan para poder comparar,
 por ejemplo, `Fe-Porphyrin` con `Fe_Porphyrin` entre sistemas.
+Para análisis nuevos, busca estos archivos dentro de
+`charge_spin_results/`. También conserva compatibilidad con resultados
+anteriores escritos directamente en cada carpeta de sistema.
 
 Para poblaciones de spin, el flujo interactivo permite elegir como se arman la
 estadistica, los histogramas y los archivos de salida:

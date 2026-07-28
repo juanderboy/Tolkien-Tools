@@ -176,6 +176,7 @@ def write_numbered_atom_viewer_for_fragment_selection(
     orca_files,
     atom_ids,
     atom_type_map,
+    geometry_search_dir=".",
 ):
     """
     Generate a full atom-numbering viewer before fragment composition prompts.
@@ -195,7 +196,7 @@ def write_numbered_atom_viewer_for_fragment_selection(
             label_all_atoms=True,
         )
     else:
-        xyz_path = find_default_xyz_for_spin_viewer()
+        xyz_path = find_default_xyz_for_spin_viewer(geometry_search_dir)
         if xyz_path is None:
             xyz_path = input(
                 "XYZ file for the fragment-numbering viewer was not autodetected. Enter path (Enter = skip viewer): "
@@ -222,7 +223,11 @@ def write_numbered_atom_viewer_for_fragment_selection(
         open_html_viewer(output_path)
 
 
-def build_coordination_fragment_proposal(orca_mode, orca_files):
+def build_coordination_fragment_proposal(
+    orca_mode,
+    orca_files,
+    geometry_search_dir=".",
+):
     """
     Build, report and visualize a distance-based coordination proposal.
     """
@@ -235,7 +240,7 @@ def build_coordination_fragment_proposal(orca_mode, orca_files):
         title, atoms = parse_orca_cartesian_coordinates(geometry_path)
         print(f"[INFO] Using '{geometry_path}' for coordination analysis.")
     else:
-        geometry_path = find_default_xyz_for_spin_viewer()
+        geometry_path = find_default_xyz_for_spin_viewer(geometry_search_dir)
         if geometry_path is None:
             geometry_path = input(
                 "XYZ file for coordination analysis was not autodetected. Enter path: "
@@ -637,6 +642,14 @@ def main():
         print_terminal_global_summary(global_summary_entries)
         return
 
+    analysis_input_dir = os.getcwd()
+    analysis_output_dir = os.path.join(
+        analysis_input_dir,
+        "charge_spin_results",
+    )
+    os.makedirs(analysis_output_dir, exist_ok=True)
+    print(f"[INFO] Analysis results will be written to '{analysis_output_dir}'.")
+
     # Select program
     prog = prompt_numbered_choice(
         "Program to use:",
@@ -659,6 +672,7 @@ def main():
         # inspect-merge` or legacy per-segment mq_*.dat/ms_*.dat files.
         charge_full = find_first_existing_file(("mulliken_full.dat", "mq_full.dat"))
         if charge_full:
+            charge_full = os.path.abspath(charge_full)
             print(f"Using merged charge file: {charge_full}")
         else:
             mq_files = get_sorted_files("mq")
@@ -670,11 +684,16 @@ def main():
             print("Charge files (mq_*.dat) to be merged:")
             for f in mq_files:
                 print("  ", f)
-            merge_files(mq_files, "mq_full.dat", skip_initial_population_block=True)
-            charge_full = "mq_full.dat"
+            charge_full = os.path.join(analysis_output_dir, "mq_full.dat")
+            merge_files(
+                mq_files,
+                charge_full,
+                skip_initial_population_block=True,
+            )
 
         spin_full = find_first_existing_file(("mulliken_spin_full.dat", "ms_full.dat"))
         if spin_full:
+            spin_full = os.path.abspath(spin_full)
             have_spin = True
             print(f"Using merged spin file: {spin_full}")
         else:
@@ -684,12 +703,17 @@ def main():
                 print("Spin files (ms_*.dat) to be merged:")
                 for f in ms_files:
                     print("  ", f)
-                merge_files(ms_files, "ms_full.dat", skip_initial_population_block=True)
-                spin_full = "ms_full.dat"
+                spin_full = os.path.join(analysis_output_dir, "ms_full.dat")
+                merge_files(
+                    ms_files,
+                    spin_full,
+                    skip_initial_population_block=True,
+                )
             else:
                 spin_full = None
                 print_lio_merge_pop_hint("spines")
                 print("[INFO] No se encontro 'mulliken_spin_full.dat' ni 'ms_full.dat'. Solo se analizaran cargas.")
+        os.chdir(analysis_output_dir)
         spin_sign = -1.0
     else:
         # ORCA: each <prefix>_N.out/.dat file is a frame
@@ -717,6 +741,7 @@ def main():
             else:
                 print("Error: no ORCA files matching '<prefix>_N.out' or '<prefix>_N.dat' were found.")
             sys.exit(1)
+        orca_files = [os.path.abspath(fname) for fname in orca_files]
 
         if orca_prefix:
             print(f"ORCA files ({orca_prefix}_*.out/.dat) to be analyzed:")
@@ -771,6 +796,8 @@ def main():
         loewdin_charge_header_line = (
             "LOEWDIN ATOMIC CHARGES AND SPIN POPULATIONS" if have_spin else "LOEWDIN ATOMIC CHARGES"
         )
+
+        os.chdir(analysis_output_dir)
 
         if population_config["mulliken"]:
             if have_spin:
@@ -990,7 +1017,9 @@ def main():
                         avg_fraction_by_atom,
                     )
                 else:
-                    xyz_path = find_default_xyz_for_spin_viewer()
+                    xyz_path = find_default_xyz_for_spin_viewer(
+                        analysis_input_dir
+                    )
                     if xyz_path is None:
                         xyz_path = input(
                             "XYZ file for the viewer was not autodetected. Enter path (Enter = skip): "
@@ -1036,6 +1065,7 @@ def main():
                 named_groups = build_coordination_fragment_proposal(
                     orca_mode,
                     orca_files if orca_mode else [],
+                    geometry_search_dir=analysis_input_dir,
                 )
             except Exception as exc:
                 print(f"[WARN] Automatic coordination proposal was skipped: {exc}")
@@ -1048,6 +1078,7 @@ def main():
                     orca_files if orca_mode else [],
                     all_spin_atom_ids,
                     atom_type_map,
+                    geometry_search_dir=analysis_input_dir,
                 )
             except Exception as exc:
                 print(f"[WARN] Atom-numbering viewer was skipped: {exc}")
