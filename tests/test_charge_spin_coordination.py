@@ -18,10 +18,17 @@ from charge_spin_coordination import (  # noqa: E402
     proposal_named_groups,
     propose_coordination_fragments,
 )
-from charge_spin_cli import parse_atom_selection_with_ranges  # noqa: E402
+from charge_spin_cli import (  # noqa: E402
+    parse_atom_selection_with_ranges,
+    select_primary_population_analysis,
+    should_process_additional_analysis,
+)
 import charge_spin_cli  # noqa: E402
 import charge_spin_viewer  # noqa: E402
-from charge_spin_common import parse_global_entity_list  # noqa: E402
+from charge_spin_common import (  # noqa: E402
+    get_population_analysis_config,
+    parse_global_entity_list,
+)
 from charge_spin_global import (  # noqa: E402
     collect_global_hist_data,
     infer_entities_from_previous_analysis,
@@ -41,6 +48,47 @@ def atom(index, element, x, y=0.0, z=0.0):
 
 
 class CoordinationProposalTests(unittest.TestCase):
+    def test_all_processes_mulliken_when_hirshfeld_is_primary(self):
+        population_config = get_population_analysis_config("all")
+
+        self.assertTrue(
+            should_process_additional_analysis(
+                population_config,
+                primary_analysis_kind="hirshfeld",
+                analysis_kind="mulliken",
+            )
+        )
+
+    def test_primary_analysis_falls_back_from_hirshfeld_to_loewdin(self):
+        population_config = get_population_analysis_config("all")
+
+        selected = select_primary_population_analysis(
+            population_config,
+            {
+                "hirshfeld": False,
+                "loewdin": True,
+                "mulliken": True,
+                "chelpg_hirshfeld": False,
+            },
+        )
+
+        self.assertEqual(selected, "loewdin")
+
+    def test_primary_analysis_falls_back_from_loewdin_to_mulliken(self):
+        population_config = get_population_analysis_config("all")
+
+        selected = select_primary_population_analysis(
+            population_config,
+            {
+                "hirshfeld": False,
+                "loewdin": False,
+                "mulliken": True,
+                "chelpg_hirshfeld": False,
+            },
+        )
+
+        self.assertEqual(selected, "mulliken")
+
     def test_separates_coordinated_and_uncoordinated_components(self):
         atoms = [
             atom(0, "Fe", 0.0),

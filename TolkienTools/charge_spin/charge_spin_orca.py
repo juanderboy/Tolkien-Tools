@@ -193,6 +193,7 @@ def build_orca_charge_file(
         print("Error: no ORCA files matching '<prefix>_N.out' or '<prefix>_N.dat' were found.")
         sys.exit(1)
 
+    frames_written = 0
     with open(out_charge, "w") as q_out:
         for fname in orca_files:
             charge_block = extract_orca_charge_only_block(fname, charge_header_line)
@@ -209,8 +210,10 @@ def build_orca_charge_file(
                 sum_q += charge
 
             q_out.write(f"  Total Charge = {sum_q: .7f}\n\n")
+            frames_written += 1
 
     print(f"[OK] ORCA charge file ({charge_label}) merged into '{out_charge}'.")
+    return frames_written
 
 
 def build_orca_full_files(
@@ -230,6 +233,7 @@ def build_orca_full_files(
         print("Error: no ORCA files matching '<prefix>_N.out' or '<prefix>_N.dat' were found.")
         sys.exit(1)
 
+    frames_written = 0
     with open(out_charge, "w") as q_out, open(out_spin, "w") as s_out:
         for fname in orca_files:
             if spin_header_line is None:
@@ -287,7 +291,9 @@ def build_orca_full_files(
             # Closing line compatible with the parser
             q_out.write(f"  Total Charge = {sum_q: .7f}\n\n")
             s_out.write(f"  Total Charge = {sum_s: .7f}\n\n")
+            frames_written += 1
 
     spin_print_label = spin_label or charge_label
     print(f"[OK] ORCA charge file ({charge_label}) merged into '{out_charge}'.")
     print(f"[OK] ORCA spin file ({spin_print_label}) merged into '{out_spin}'.")
+    return frames_written

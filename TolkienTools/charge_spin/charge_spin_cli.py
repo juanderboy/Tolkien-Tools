@@ -134,6 +134,31 @@ def actor_config_list(actor_config):
     return [actor_config]
 
 
+def should_process_additional_analysis(population_config, primary_analysis_kind, analysis_kind):
+    """
+    Return whether an enabled ORCA population analysis still needs processing.
+    """
+    return bool(population_config.get(analysis_kind)) and primary_analysis_kind != analysis_kind
+
+
+def select_primary_population_analysis(population_config, available_analyses):
+    """
+    Select the highest-priority enabled analysis that produced usable frames.
+    """
+    priority = (
+        "hirshfeld",
+        "loewdin",
+        "mulliken",
+        "chelpg_loewdin",
+        "chelpg_mulliken",
+        "chelpg_hirshfeld",
+    )
+    for analysis_kind in priority:
+        if population_config.get(analysis_kind) and available_analyses.get(analysis_kind):
+            return analysis_kind
+    return None
+
+
 def selected_atom_ids_from_actor_config(actor_config):
     """
     Return the union of atoms that belong to grouped actors.
@@ -799,9 +824,10 @@ def main():
 
         os.chdir(analysis_output_dir)
 
+        available_analyses = {}
         if population_config["mulliken"]:
             if have_spin:
-                build_orca_full_files(
+                frame_count = build_orca_full_files(
                     orca_files,
                     "mq_orca_todo.dat",
                     "ms_orca_todo.dat",
@@ -809,15 +835,16 @@ def main():
                     charge_header_line=mulliken_charge_header_line
                 )
             else:
-                build_orca_charge_file(
+                frame_count = build_orca_charge_file(
                     orca_files,
                     "mq_orca_todo.dat",
                     charge_label="Mulliken",
                     charge_header_line=mulliken_charge_header_line
                 )
+            available_analyses["mulliken"] = frame_count > 0
         if population_config["loewdin"]:
             if have_spin:
-                build_orca_full_files(
+                frame_count = build_orca_full_files(
                     orca_files,
                     "lq_orca_todo.dat",
                     "ls_orca_todo.dat",
@@ -825,15 +852,16 @@ def main():
                     charge_header_line=loewdin_charge_header_line
                 )
             else:
-                build_orca_charge_file(
+                frame_count = build_orca_charge_file(
                     orca_files,
                     "lq_orca_todo.dat",
                     charge_label="Loewdin",
                     charge_header_line=loewdin_charge_header_line
                 )
+            available_analyses["loewdin"] = frame_count > 0
         if population_config["hirshfeld"]:
             if have_spin:
-                build_orca_full_files(
+                frame_count = build_orca_full_files(
                     orca_files,
                     "hq_orca_todo.dat",
                     "hs_orca_todo.dat",
@@ -841,15 +869,16 @@ def main():
                     charge_header_line="HIRSHFELD ANALYSIS"
                 )
             else:
-                build_orca_charge_file(
+                frame_count = build_orca_charge_file(
                     orca_files,
                     "hq_orca_todo.dat",
                     charge_label="Hirshfeld",
                     charge_header_line="HIRSHFELD ANALYSIS"
                 )
+            available_analyses["hirshfeld"] = frame_count > 0
         if population_config["chelpg_loewdin"]:
             if have_spin:
-                build_orca_full_files(
+                frame_count = build_orca_full_files(
                     orca_files,
                     "cq_loewdin_orca_todo.dat",
                     "cs_loewdin_orca_todo.dat",
@@ -858,11 +887,13 @@ def main():
                     spin_label="Loewdin",
                     spin_header_line="LOEWDIN ATOMIC CHARGES AND SPIN POPULATIONS"
                 )
+                available_analyses["chelpg_loewdin"] = frame_count > 0
             else:
                 print("[INFO] CHELPG + Loewdin was skipped because the system is closed-shell and has no spin populations.")
+                available_analyses["chelpg_loewdin"] = False
         if population_config["chelpg_mulliken"]:
             if have_spin:
-                build_orca_full_files(
+                frame_count = build_orca_full_files(
                     orca_files,
                     "cq_mulliken_orca_todo.dat",
                     "cs_mulliken_orca_todo.dat",
@@ -871,11 +902,13 @@ def main():
                     spin_label="Mulliken",
                     spin_header_line="MULLIKEN ATOMIC CHARGES AND SPIN POPULATIONS"
                 )
+                available_analyses["chelpg_mulliken"] = frame_count > 0
             else:
                 print("[INFO] CHELPG + Mulliken was skipped because the system is closed-shell and has no spin populations.")
+                available_analyses["chelpg_mulliken"] = False
         if population_config["chelpg_hirshfeld"]:
             if have_spin:
-                build_orca_full_files(
+                frame_count = build_orca_full_files(
                     orca_files,
                     "cq_hirshfeld_orca_todo.dat",
                     "cs_hirshfeld_orca_todo.dat",
@@ -885,53 +918,69 @@ def main():
                     spin_header_line="HIRSHFELD ANALYSIS"
                 )
             else:
-                build_orca_charge_file(
+                frame_count = build_orca_charge_file(
                     orca_files,
                     "cq_hirshfeld_orca_todo.dat",
                     charge_label="CHELPG",
                     charge_header_line="CHELPG Charges"
                 )
+            available_analyses["chelpg_hirshfeld"] = frame_count > 0
+
+        for analysis_kind, is_available in available_analyses.items():
+            if population_config.get(analysis_kind) and not is_available:
+                population_config[analysis_kind] = False
+                print(
+                    f"[WARN] {get_analysis_display_label(analysis_kind)} was disabled "
+                    "because no usable population frames were found."
+                )
 
         # The primary analysis controls the spin-consistency check. When several
         # analyses are enabled (for example, "All"), prefer the most robust spin
-        # partitioning available: Hirshfeld > Loewdin > Mulliken.
-        if population_config["hirshfeld"]:
-            primary_analysis_kind = "hirshfeld"
+        # partitioning that actually produced frames: Hirshfeld > Loewdin > Mulliken.
+        primary_analysis_kind = select_primary_population_analysis(
+            population_config,
+            available_analyses,
+        )
+        if primary_analysis_kind is None:
+            print("Error: none of the selected population analyses produced usable frames.")
+            sys.exit(1)
+
+        print(
+            f"[INFO] {get_analysis_display_label(primary_analysis_kind)} will be used "
+            "as the primary population analysis."
+        )
+
+        if primary_analysis_kind == "hirshfeld":
             charge_full = "hq_orca_todo.dat"
             spin_full = "hs_orca_todo.dat" if have_spin else None
             active_charge_header = "# Hirshfeld Population Analysis"
             active_spin_header = "# Hirshfeld Spin Population Analysis"
             active_charge_axis_label = "Hirshfeld charge"
-        elif population_config["loewdin"]:
-            primary_analysis_kind = "loewdin"
+        elif primary_analysis_kind == "loewdin":
             charge_full = "lq_orca_todo.dat"
             spin_full = "ls_orca_todo.dat" if have_spin else None
             active_charge_header = "# Loewdin Population Analysis"
             active_spin_header = "# Loewdin Spin Population Analysis"
             active_charge_axis_label = "Loewdin charge"
-        elif population_config["mulliken"]:
-            primary_analysis_kind = "mulliken"
+        elif primary_analysis_kind == "mulliken":
             charge_full = "mq_orca_todo.dat"
             spin_full = "ms_orca_todo.dat" if have_spin else None
             active_charge_header = "# Mulliken Population Analysis"
             active_spin_header = "# Mulliken Spin Population Analysis"
             active_charge_axis_label = "Mulliken charge"
-        elif population_config["chelpg_loewdin"]:
-            primary_analysis_kind = "chelpg_loewdin"
+        elif primary_analysis_kind == "chelpg_loewdin":
             charge_full = "cq_loewdin_orca_todo.dat"
             spin_full = "cs_loewdin_orca_todo.dat" if have_spin else None
             active_charge_header = "# CHELPG Population Analysis"
             active_spin_header = "# Loewdin Spin Population Analysis"
             active_charge_axis_label = "CHELPG charge"
-        elif population_config["chelpg_mulliken"]:
-            primary_analysis_kind = "chelpg_mulliken"
+        elif primary_analysis_kind == "chelpg_mulliken":
             charge_full = "cq_mulliken_orca_todo.dat"
             spin_full = "cs_mulliken_orca_todo.dat" if have_spin else None
             active_charge_header = "# CHELPG Population Analysis"
             active_spin_header = "# Mulliken Spin Population Analysis"
             active_charge_axis_label = "CHELPG charge"
         else:
-            primary_analysis_kind = "chelpg_hirshfeld"
             charge_full = "cq_hirshfeld_orca_todo.dat"
             spin_full = "cs_hirshfeld_orca_todo.dat" if have_spin else None
             active_charge_header = "# CHELPG Population Analysis"
@@ -1542,8 +1591,111 @@ def main():
                     spin_ylabel=primary_spin_ylabel
                 )
 
+    # --- ORCA: additional Mulliken analysis ---
+    # With "All", Hirshfeld is the primary analysis used for spin-consistency
+    # checks. Mulliken must therefore be processed explicitly here, just like
+    # the other enabled non-primary population analyses.
+    if orca_mode and should_process_additional_analysis(
+        population_config,
+        primary_analysis_kind,
+        "mulliken",
+    ):
+        mulliken_charge_mask = apply_keep_mask_or_warn(
+            spin_keep_mask,
+            parse_frame_data("mq_orca_todo.dat", dt_ps, atom_ids, "charge", "# Mulliken Population Analysis")[0].size,
+            "Mulliken charge"
+        )
+        times_m, per_atom_q_m, hist_q_m = build_analysis_timeseries_and_stats(
+            "mq_orca_todo.dat",
+            dt_ps,
+            atom_ids,
+            atom_labels,
+            actor_config,
+            kind="charge",
+            header_start="# Mulliken Population Analysis",
+            ts_outname=append_suffix_to_path("mulliken_charge_timeseries.dat", output_variant_suffix) if output_variant_suffix is not None else "mulliken_charge_timeseries.dat",
+            avg_outname=append_suffix_to_path("mulliken_charge_averages.dat", output_variant_suffix) if output_variant_suffix is not None else "mulliken_charge_averages.dat",
+            hist_prefix="mulliken_charge_hist",
+            modes_outname=append_suffix_to_path("mulliken_charge_modes.dat", output_variant_suffix) if output_variant_suffix is not None else "mulliken_charge_modes.dat",
+            nbins_hist=hist_bins_spec,
+            keep_mask=mulliken_charge_mask
+        )
+
+        hist_s_m = {}
+        per_atom_s_m = {entity_id: np.array([]) for entity_id in analysis_entity_ids}
+        if have_spin:
+            mulliken_spin_mask = apply_keep_mask_or_warn(
+                spin_keep_mask,
+                parse_frame_data("ms_orca_todo.dat", dt_ps, atom_ids, "spin", "# Mulliken Spin Population Analysis", spin_sign=spin_sign)[0].size,
+                "Mulliken spin"
+            )
+            _times_spin_m, per_atom_s_m, hist_s_m = build_analysis_timeseries_and_stats(
+                "ms_orca_todo.dat",
+                dt_ps,
+                atom_ids,
+                atom_labels,
+                actor_config,
+                kind="spin",
+                header_start="# Mulliken Spin Population Analysis",
+                ts_outname=append_suffix_to_path("mulliken_spin_timeseries.dat", output_variant_suffix) if output_variant_suffix is not None else "mulliken_spin_timeseries.dat",
+                avg_outname=append_suffix_to_path("mulliken_spin_averages.dat", output_variant_suffix) if output_variant_suffix is not None else "mulliken_spin_averages.dat",
+                hist_prefix="mulliken_spin_hist",
+                modes_outname=append_suffix_to_path("mulliken_spin_modes.dat", output_variant_suffix) if output_variant_suffix is not None else "mulliken_spin_modes.dat",
+                nbins_hist=hist_bins_spec,
+                spin_sign=spin_sign,
+                keep_mask=mulliken_spin_mask,
+                normalize_spin_fraction=spin_config["normalize"]
+            )
+
+        write_combined_entity_timeseries(
+            analysis_entity_ids,
+            times_m,
+            per_atom_q_m,
+            per_atom_s_m if have_spin else {},
+            spin_column_label,
+            "qs",
+            actor_config=actor_config
+        )
+
+        make_combined_hist_figure(
+            analysis_entity_ids,
+            hist_charge=hist_q_m,
+            hist_spin=hist_s_m if have_spin else {},
+            atom_labels=atom_labels,
+            charge_axis_label="Mulliken charge",
+            spin_axis_label="Mulliken spin fraction" if spin_config["normalize"] else "Mulliken spin",
+            fig_outname=append_suffix_to_path("mulliken_histograms.png", output_variant_suffix) if output_variant_suffix is not None else "mulliken_histograms.png"
+        )
+
+        if make_time_plots:
+            make_timeseries_figure(
+                times_m,
+                per_atom_q_m,
+                per_atom_s_m if have_spin else {},
+                analysis_entity_ids,
+                atom_labels=atom_labels,
+                fig_outname=append_suffix_to_path("mulliken_timeseries.png", output_variant_suffix) if output_variant_suffix is not None else "mulliken_timeseries.png",
+                spin_ylabel="Mulliken spin fraction" if spin_config["normalize"] else "Mulliken spin"
+            )
+
+        terminal_summary_entries.append(
+            build_terminal_summary_entry(
+                "Mulliken",
+                analysis_entity_ids,
+                atom_labels,
+                per_atom_q_m,
+                per_atom_s_m if have_spin else {},
+                hist_q_m,
+                hist_s_m if have_spin else {},
+            )
+        )
+
     # --- ORCA: additional Loewdin analysis ---
-    if orca_mode and population_config["loewdin"] and primary_analysis_kind != "loewdin":
+    if orca_mode and should_process_additional_analysis(
+        population_config,
+        primary_analysis_kind,
+        "loewdin",
+    ):
         loewdin_charge_mask = apply_keep_mask_or_warn(
             spin_keep_mask,
             parse_frame_data("lq_orca_todo.dat", dt_ps, atom_ids, "charge", "# Loewdin Population Analysis")[0].size,
@@ -1634,7 +1786,11 @@ def main():
         )
 
     # --- ORCA: additional Hirshfeld analysis ---
-    if orca_mode and population_config["hirshfeld"] and primary_analysis_kind != "hirshfeld":
+    if orca_mode and should_process_additional_analysis(
+        population_config,
+        primary_analysis_kind,
+        "hirshfeld",
+    ):
         hirshfeld_charge_mask = apply_keep_mask_or_warn(
             spin_keep_mask,
             parse_frame_data("hq_orca_todo.dat", dt_ps, atom_ids, "charge", "# Hirshfeld Population Analysis")[0].size,
@@ -1725,7 +1881,11 @@ def main():
         )
 
     # --- ORCA: additional CHELPG + Loewdin analysis ---
-    if orca_mode and population_config["chelpg_loewdin"] and primary_analysis_kind != "chelpg_loewdin":
+    if orca_mode and should_process_additional_analysis(
+        population_config,
+        primary_analysis_kind,
+        "chelpg_loewdin",
+    ):
         chelpg_charge_mask = apply_keep_mask_or_warn(
             spin_keep_mask,
             parse_frame_data("cq_loewdin_orca_todo.dat", dt_ps, atom_ids, "charge", "# CHELPG Population Analysis")[0].size,
@@ -1816,7 +1976,11 @@ def main():
         )
 
     # --- ORCA: additional CHELPG + Mulliken analysis ---
-    if orca_mode and population_config["chelpg_mulliken"] and primary_analysis_kind != "chelpg_mulliken":
+    if orca_mode and should_process_additional_analysis(
+        population_config,
+        primary_analysis_kind,
+        "chelpg_mulliken",
+    ):
         chelpg_charge_mask = apply_keep_mask_or_warn(
             spin_keep_mask,
             parse_frame_data("cq_mulliken_orca_todo.dat", dt_ps, atom_ids, "charge", "# CHELPG Population Analysis")[0].size,
@@ -1907,7 +2071,11 @@ def main():
         )
 
     # --- ORCA: additional CHELPG + Hirshfeld analysis ---
-    if orca_mode and population_config["chelpg_hirshfeld"] and primary_analysis_kind != "chelpg_hirshfeld":
+    if orca_mode and should_process_additional_analysis(
+        population_config,
+        primary_analysis_kind,
+        "chelpg_hirshfeld",
+    ):
         chelpg_charge_mask = apply_keep_mask_or_warn(
             spin_keep_mask,
             parse_frame_data("cq_hirshfeld_orca_todo.dat", dt_ps, atom_ids, "charge", "# CHELPG Population Analysis")[0].size,
