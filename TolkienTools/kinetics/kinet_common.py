@@ -22,6 +22,10 @@ SPECIAL_MODEL_LABELS = {
     "mbfe3_sulfide_hss_transsulfuration": (
         "reduccion de MbFe(III)-HS por HSS- agregado con transsulfuracion"
     ),
+    "mbfe3_sulfide_hss_transsulfuration_no_auto": (
+        "reduccion de MbFe(III)-HS por HSS- agregado con transsulfuracion "
+        "sin autocatalisis"
+    ),
 }
 
 MODEL_LABELS = {
@@ -37,7 +41,13 @@ MODEL_SPECIES = {
     "mbfe3_sulfide_autocatalytic": ("MbFeIII-SH", "MbFeII"),
     "mbfe3_sulfide_binding_autocatalytic": ("MbFeIII", "MbFeIII-HS", "MbFeII"),
     "mbfe3_sulfide_hss_transsulfuration": ("MbFeIII-Sx", "MbFeII"),
+    "mbfe3_sulfide_hss_transsulfuration_no_auto": ("MbFeIII-Sx", "MbFeII"),
 }
+
+HSS_TRANSSULFURATION_MODELS = (
+    "mbfe3_sulfide_hss_transsulfuration",
+    "mbfe3_sulfide_hss_transsulfuration_no_auto",
+)
 
 
 PARAMETER_LABELS = {
@@ -176,6 +186,33 @@ MODEL_PRESENTATIONS = {
             "MbFeIII-HS y MbFeIII-HSS se distinguen cineticamente pero comparten espectro.",
             "La concentracion inicial de HSS- agregado se fija como R_HSS*c0.",
             "La produccion endogena de especies tipo polisulfuro queda en el termino k_auto*x.",
+        ),
+    },
+    "mbfe3_sulfide_hss_transsulfuration_no_auto": {
+        "scheme": (
+            "MbFeIII-HS + HSS- -> MbFeIII-HSS -> MbFeII, "
+            "en paralelo con la reduccion lenta de MbFeIII-HS"
+        ),
+        "profiles": (
+            "A = [MbFeIII-HS]",
+            "B = [MbFeIII-HSS]",
+            "S = [HSS-] libre agregado efectivo",
+            "dA/dt = -k_slow*A - k_ts*A*S",
+            "dB/dt = k_ts*A*S - k_fast*B",
+            "d[MbFeII]/dt = k_slow*A + k_fast*B",
+            "dS/dt = -k_ts*A*S",
+            "[MbFeIII-Sx](t) = A + B",
+        ),
+        "parameters": (
+            "k_slow,obs: constante aparente de reduccion lenta de MbFeIII-HS",
+            "k_ts: transsulfuracion bimolecular por HSS- agregado",
+            "k_fast: reduccion rapida del intermedio MbFeIII-HSS",
+        ),
+        "notes": (
+            "El ajuste usa dos especies absorbentes: MbFeIII-Sx y MbFeII.",
+            "MbFeIII-HS y MbFeIII-HSS se distinguen cineticamente pero comparten espectro.",
+            "La concentracion inicial de HSS- agregado se fija como R_HSS*c0.",
+            "No incluye aceleracion autocatalitica por polisulfuros endogenos.",
         ),
     },
 }

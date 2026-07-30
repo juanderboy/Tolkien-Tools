@@ -196,6 +196,81 @@ def concentration_profile_mbfe3_sulfide_hss_transsulfuration(
     return np.vstack([ferric_coord, reduced])
 
 
+def concentration_profile_mbfe3_sulfide_hss_transsulfuration_no_auto(
+    t: np.ndarray,
+    k_slow: float,
+    k_ts: float,
+    k_fast: float,
+    hss_ratio: float,
+    c0: float = 1.0,
+) -> np.ndarray:
+    """Visible HSS- transsulfuration profiles without autocatalysis.
+
+    MbFeIII-HS can reduce through the slow intrinsic path or react with added
+    HSS- to form MbFeIII-HSS. The latter intermediate then reduces through the
+    fast path. Both ferric sulfur-bound species share one visible spectrum.
+    """
+    if k_slow <= 0 or k_ts <= 0 or k_fast <= 0:
+        raise ValueError("All kinetic constants must be positive")
+    if hss_ratio < 0:
+        raise ValueError("hss_ratio must be nonnegative")
+    if c0 <= 0:
+        raise ValueError("c0 must be positive")
+
+    t = np.asarray(t, dtype=float)
+    if t.ndim != 1:
+        raise ValueError("t must be a one-dimensional array")
+    if t.size == 0:
+        return np.empty((2, 0))
+    if np.any(t < 0):
+        raise ValueError("Time values must be nonnegative")
+    if np.any(np.diff(t) < 0):
+        raise ValueError("Time values must be sorted in ascending order")
+
+    s0 = hss_ratio * c0
+
+    def rhs(_time: float, y: np.ndarray) -> tuple[float, float, float, float]:
+        mbfe3_hs, mbfe3_hss, reduced, hss = y
+        slow_reduction_rate = k_slow * mbfe3_hs
+        transsulfuration_rate = k_ts * mbfe3_hs * max(hss, 0.0)
+        fast_reduction_rate = k_fast * mbfe3_hss
+        return (
+            -slow_reduction_rate - transsulfuration_rate,
+            transsulfuration_rate - fast_reduction_rate,
+            slow_reduction_rate + fast_reduction_rate,
+            -transsulfuration_rate,
+        )
+
+    initial = (c0, 0.0, 0.0, s0)
+    if t[-1] == 0:
+        ferric = np.repeat(c0, t.size)
+        reduced = np.zeros(t.size)
+        return np.vstack([ferric, reduced])
+
+    solution = solve_ivp(
+        rhs,
+        (0.0, float(t[-1])),
+        initial,
+        t_eval=t,
+        method="DOP853",
+        rtol=1e-8,
+        atol=max(c0, s0, 1.0) * 1e-10,
+    )
+    if not solution.success:
+        raise RuntimeError(
+            "MbFeIII sulfide/HSS transsulfuration model without "
+            f"autocatalysis failed: {solution.message}"
+        )
+
+    mbfe3_hs, mbfe3_hss, reduced, _hss = np.clip(solution.y, 0.0, None)
+    ferric_coord = mbfe3_hs + mbfe3_hss
+    total_mb = ferric_coord + reduced
+    valid = total_mb > 0
+    ferric_coord[valid] *= c0 / total_mb[valid]
+    reduced[valid] *= c0 / total_mb[valid]
+    return np.vstack([ferric_coord, reduced])
+
+
 
 def concentration_profile_a_to_b_to_c(
     t: np.ndarray,

@@ -9,7 +9,13 @@ from pathlib import Path
 
 import numpy as np
 
-from kinet_common import Experiment, FitResult, MODEL_LABELS, PARAMETER_LABELS
+from kinet_common import (
+    Experiment,
+    FitResult,
+    HSS_TRANSSULFURATION_MODELS,
+    MODEL_LABELS,
+    PARAMETER_LABELS,
+)
 from kinet_fitting import is_near_bound
 from kinet_plotting import plot_result
 
@@ -108,7 +114,7 @@ def write_fit_summary_dat(
         lines.append("corrected_time_zero\tfirst_kept_spectrum")
     if reaction_end_time is not None:
         lines.append(f"reaction_end_time_original_units\t{reaction_end_time:.10g}")
-    if model == "mbfe3_sulfide_hss_transsulfuration":
+    if model in HSS_TRANSSULFURATION_MODELS:
         lines.append(f"hss_ratio_added\t{args.hss_ratio:.10g}")
     if args.initial_spectrum_weight > 0:
         lines.append(f"initial_spectrum_weight\t{args.initial_spectrum_weight:.10g}")

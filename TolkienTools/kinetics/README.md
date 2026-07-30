@@ -77,6 +77,13 @@ un sistema quimico. Actualmente contiene:
   constantes (`k_slow,obs`, `k_auto`, `k_ts`, `k_fast`). La relacion inicial
   agregada se fija con `--hss-ratio R`.
 
+- `reduccion de MbFe(III)-HS por HSS- agregado con transsulfuracion sin
+  autocatalisis`: conserva la reduccion lenta intrinseca de `MbFeIII-HS` pero
+  elimina el termino `k_auto`. La aceleracion surge exclusivamente de la
+  formacion y reduccion de `MbFeIII-HSS`. Ajusta tres constantes
+  (`k_slow,obs`, `k_ts`, `k_fast`) y usa la relacion inicial fijada con
+  `--hss-ratio R`.
+
 ## Detalles tecnicos de los modelos
 
 ### `mbfe3_sulfide_autocatalytic`
@@ -187,6 +194,43 @@ La autocatálisis endogena del mecanismo con `HS-` se mantiene en el termino
 `k_auto*x`. El `HSS-` agregado se trata como una especie externa consumible y se
 fija con `--hss-ratio`.
 
+### `mbfe3_sulfide_hss_transsulfuration_no_auto`
+
+Este modelo representa los experimentos en los que `MbFeIII-HS` esta formado
+en `t = 0` y se agrega `HSS-`. Conserva la reduccion lenta intrinseca del
+complejo inicial, relevante antes de que se acumule una cantidad apreciable del
+intermedio transulfurado, pero no incluye aceleracion autocatalitica por
+polisulfuros endogenos.
+
+```text
+A = MbFeIII-HS
+B = MbFeIII-HSS
+P = MbFeII
+S = HSS- libre agregado efectivo
+
+dA/dt = -k_slow*A - k_ts*A*S
+dB/dt =  k_ts*A*S - k_fast*B
+dP/dt =  k_slow*A + k_fast*B
+dS/dt = -k_ts*A*S
+```
+
+Las condiciones iniciales y las especies visibles son las mismas que en el
+modelo con autocatalisis:
+
+```text
+A(0) = c0
+B(0) = 0
+P(0) = 0
+S(0) = R_HSS*c0
+
+[MbFeIII-Sx](t) = A(t) + B(t)
+[MbFeII](t) = P(t)
+```
+
+En `t = 0`, la velocidad de formacion de `MbFeII` es `k_slow*c0`, porque
+todavia no hay `MbFeIII-HSS`. La aceleracion posterior puede producir trazas
+sigmoideas a medida que se forma `B` y comienza a contribuir `k_fast*B`.
+
 Ejemplo no interactivo:
 
 ```bash
@@ -206,6 +250,14 @@ tolkien-tools 4 experimento.dat \
 ```bash
 tolkien-tools 4 experimento.dat \
   --model mbfe3_sulfide_hss_transsulfuration \
+  --hss-ratio 20 \
+  --baseline-mode none \
+  --no-plot
+```
+
+```bash
+tolkien-tools 4 experimento.dat \
+  --model mbfe3_sulfide_hss_transsulfuration_no_auto \
   --hss-ratio 20 \
   --baseline-mode none \
   --no-plot

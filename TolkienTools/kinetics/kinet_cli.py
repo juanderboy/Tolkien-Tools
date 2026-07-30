@@ -12,6 +12,7 @@ import numpy as np
 
 from kinet_common import (
     GENERAL_MODEL_LABELS,
+    HSS_TRANSSULFURATION_MODELS,
     MODEL_LABELS,
     MODEL_PRESENTATIONS,
     MODEL_SPECIES,
@@ -326,7 +327,7 @@ def print_fit_report(
         print(f"reaction end time: {reaction_end_time:g} original time units")
     print(f"c0: {c0:g} M")
     print(f"model: {MODEL_LABELS[model]}")
-    if model == "mbfe3_sulfide_hss_transsulfuration":
+    if model in HSS_TRANSSULFURATION_MODELS:
         print(f"R_HSS added: {args.hss_ratio:g}")
     print(f"fit method: {result.method}")
     if result.known_species:
@@ -597,7 +598,7 @@ def main() -> None:
             known_specs = ask_known_spectra_choice(model)
     else:
         print_model_presentation(model)
-    if model == "mbfe3_sulfide_hss_transsulfuration" and interactive:
+    if model in HSS_TRANSSULFURATION_MODELS and interactive:
         args.hss_ratio = ask_hss_ratio(args.hss_ratio)
 
     allowed_work_range = allowed_work_range_from_known_spectra(known_specs, experiment)

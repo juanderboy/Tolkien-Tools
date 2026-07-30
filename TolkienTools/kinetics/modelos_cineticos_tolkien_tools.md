@@ -654,14 +654,13 @@ optimizacion.
 El modelo autocatalitico de dos especies tiene una solucion analitica compacta,
 por lo que su evaluacion es relativamente rapida. En cambio, los modelos con
 binding inicial y con transsulfuracion por HSS- se integran numericamente con
-`scipy.integrate.solve_ivp`, usando el metodo `DOP853`. Como cada prueba de
-constantes requiere volver a integrar el sistema y volver a resolver NNLS, estos
-ajustes pueden demorar mas que los modelos generales. Esto es especialmente
-notorio en el modelo con HSS-, que tiene mas parametros cineticos y especies
-internas.
+`scipy.integrate.solve_ivp`. Como cada prueba de constantes requiere volver a
+integrar el sistema y volver a resolver NNLS, estos ajustes pueden demorar mas
+que los modelos generales. Esto es especialmente notorio en los modelos con
+HSS-, que tienen mas parametros cineticos y especies internas.
 
 En la implementacion actual, el modelo autocatalitico simple y el modelo con
-binding inicial usan Powell como optimizador externo. El modelo con HSS- usa
+binding inicial usan Powell como optimizador externo. Los modelos con HSS- usan
 `L-BFGS-B` en espacio logaritmico para acelerar la busqueda dentro de los
 rangos permitidos.
 
@@ -847,6 +846,63 @@ si el intermedio no se acumula de una manera cineticamente distinguible. Por eso
 conviene interpretar esos parametros junto con la calidad del ajuste, la serie
 de experimentos a distintos $R_{\mathrm{HSS}}$ y la estabilidad de los espectros
 recuperados.
+
+## Transsulfuración por HSS- sin autocatálisis
+
+Esta variante se aplica cuando $\mathrm{MbFeIII\!-\!HS}$ ya esta formado al
+comienzo del experimento y se agrega $\mathrm{HSS^-}$. La reduccion intrinseca
+lenta del complejo inicial se conserva, pero se desprecia la aceleracion
+autocatalitica por polisulfuros endogenos porque la via iniciada por el
+$\mathrm{HSS^-}$ agregado domina la quimica a tiempos posteriores.
+
+Las especies internas son las mismas que en el modelo anterior:
+
+```text
+A = MbFeIII-HS
+B = MbFeIII-HSS
+P = MbFeII
+S = HSS- libre agregado efectivo
+```
+
+Las ecuaciones diferenciales son:
+
+$$
+\begin{aligned}
+\frac{dA}{dt}&=-k_{\mathrm{slow}}A-k_{\mathrm{ts}}AS,\\
+\frac{dB}{dt}&=k_{\mathrm{ts}}AS-k_{\mathrm{fast}}B,\\
+\frac{dP}{dt}&=k_{\mathrm{slow}}A+k_{\mathrm{fast}}B,\\
+\frac{dS}{dt}&=-k_{\mathrm{ts}}AS
+\end{aligned}
+$$
+
+con:
+
+$$
+A(0)=c_0,\quad B(0)=0,\quad P(0)=0,\quad
+S(0)=R_{\mathrm{HSS}}c_0
+$$
+
+Las especies absorbentes siguen siendo:
+
+$$
+\mathrm{MbFeIII\!-\!S_x}=A+B,\qquad
+\mathrm{MbFeII}=P
+$$
+
+Se ajustan tres constantes: $k_{\mathrm{slow}}$, $k_{\mathrm{ts}}$ y
+$k_{\mathrm{fast}}$. En el instante inicial, como $B(0)=0$, la velocidad de
+formacion de producto es:
+
+$$
+\left.\frac{dP}{dt}\right|_{t=0}=k_{\mathrm{slow}}c_0
+$$
+
+La contribucion rapida aparece despues de que la transsulfuracion acumula
+$\mathrm{MbFeIII\!-\!HSS}$. Esto permite representar trazas sigmoideas sin
+introducir el termino fenomenologico $k_{\mathrm{auto}}x$. Como las dos
+especies ferricas comparten espectro, $k_{\mathrm{ts}}$ y
+$k_{\mathrm{fast}}$ todavia pueden estar correlacionadas; conviene evaluarlas
+en series de experimentos con distintos valores de $R_{\mathrm{HSS}}$.
 
 # Archivos exportados
 

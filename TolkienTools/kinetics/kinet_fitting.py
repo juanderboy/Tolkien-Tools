@@ -16,6 +16,7 @@ from kinet_models import (
     concentration_profile_a_to_b_to_c,
     concentration_profile_mbfe3_sulfide_binding_autocatalytic,
     concentration_profile_mbfe3_sulfide_hss_transsulfuration,
+    concentration_profile_mbfe3_sulfide_hss_transsulfuration_no_auto,
     concentration_profile_mbfe3_sulfide_autocatalytic,
 )
 
@@ -1068,6 +1069,131 @@ def fit_mbfe3_sulfide_hss_transsulfuration(
     )
 
 
+def fit_mbfe3_sulfide_hss_transsulfuration_no_auto(
+    experiment: Experiment,
+    c0: float = 1.0,
+    hss_ratio: float = 20.0,
+    n_components: int = 2,
+    method: str = "nnls",
+    k_bounds: tuple[float, float] = (1e-8, 1e-1),
+    initial_spectrum_weight: float = 0.0,
+    known_spectra: np.ndarray | None = None,
+    known_species: tuple[str, ...] = (),
+    fix_initial_spectrum: bool = False,
+    fix_final_spectrum: bool = False,
+    progress_callback: ProgressCallback | None = None,
+) -> FitResult:
+    """Fit HSS- transsulfuration with a slow path and no autocatalysis."""
+    if method != "nnls":
+        raise ValueError("Only --fit-method nnls is supported")
+    if hss_ratio < 0:
+        raise ValueError("--hss-ratio must be nonnegative")
+    q, w, singular_values = factor_analysis(experiment.absorbance, n_components)
+    if n_components != 2:
+        raise ValueError(
+            "The MbFeIII sulfide/HSS transsulfuration fit without "
+            "autocatalysis requires exactly 2 components."
+        )
+
+    model = "mbfe3_sulfide_hss_transsulfuration_no_auto"
+    kinetic_names = ("k_slow", "k_ts", "k_fast")
+    parameter_names, parameter_bounds = direct_parameter_names_and_bounds(
+        kinetic_names,
+        known_species,
+        k_bounds,
+    )
+    parameter_bounds["k_ts"] = (1e-8, 1e4)
+
+    def objective(params: dict[str, float]) -> float:
+        c_trial = concentration_profile_mbfe3_sulfide_hss_transsulfuration_no_auto(
+            experiment.t,
+            params["k_slow"],
+            params["k_ts"],
+            params["k_fast"],
+            hss_ratio=hss_ratio,
+            c0=c0,
+        )
+        return direct_spectral_error_for_concentrations(
+            c_trial,
+            experiment,
+            spectra_method=method,
+            initial_spectrum_weight=initial_spectrum_weight,
+            known_spectra=known_spectra,
+            known_spectrum_scales=known_scale_parameters(
+                params,
+                model,
+                known_species,
+            ),
+            fix_initial_spectrum=fix_initial_spectrum,
+            fix_final_spectrum=fix_final_spectrum,
+        )
+
+    params = optimize_kinetic_parameters(
+        objective,
+        parameter_names,
+        k_bounds,
+        parameter_bounds=parameter_bounds,
+        progress_callback=progress_callback,
+        optimizer="lbfgsb",
+        max_starts=1,
+    )
+    known_scale_report = extract_known_scale_report(params, known_species)
+    known_scale_by_index = known_scale_parameters(
+        params,
+        model,
+        known_species,
+    )
+    c = concentration_profile_mbfe3_sulfide_hss_transsulfuration_no_auto(
+        experiment.t,
+        params["k_slow"],
+        params["k_ts"],
+        params["k_fast"],
+        hss_ratio=hss_ratio,
+        c0=c0,
+    )
+    spectra = fit_direct_spectra(
+        experiment.absorbance,
+        c,
+        spectra_method=method,
+        initial_spectrum_weight=initial_spectrum_weight,
+        known_spectra=known_spectra,
+        known_spectrum_scales=known_scale_by_index,
+        fix_initial_spectrum=fix_initial_spectrum,
+        fix_final_spectrum=fix_final_spectrum,
+    )
+    absorbance_calc = spectra @ c
+    residuals = experiment.absorbance - absorbance_calc
+    error = direct_spectral_error_for_concentrations(
+        c,
+        experiment,
+        spectra_method=method,
+        initial_spectrum_weight=initial_spectrum_weight,
+        known_spectra=known_spectra,
+        known_spectrum_scales=known_scale_by_index,
+        fix_initial_spectrum=fix_initial_spectrum,
+        fix_final_spectrum=fix_final_spectrum,
+    )
+
+    return FitResult(
+        method=method,
+        model=model,
+        params={name: params[name] for name in kinetic_names},
+        species_labels=MODEL_SPECIES[model],
+        c=c,
+        spectra=spectra,
+        absorbance_calc=absorbance_calc,
+        residuals=residuals,
+        singular_values=singular_values,
+        q=q,
+        w=w,
+        error=error,
+        known_species=known_species,
+        known_spectrum_scales=known_scale_report,
+        fixed_initial_spectrum=fix_initial_spectrum,
+        fixed_final_spectrum=fix_final_spectrum,
+    )
+
+
 
 def fit_a_to_b_to_c_direct(
     experiment: Experiment,
@@ -1406,6 +1532,21 @@ def fit_model(
         )
     if model == "mbfe3_sulfide_hss_transsulfuration":
         return fit_mbfe3_sulfide_hss_transsulfuration(
+            experiment,
+            c0=c0,
+            hss_ratio=hss_ratio,
+            n_components=n_components,
+            method=method,
+            k_bounds=k_bounds,
+            initial_spectrum_weight=initial_spectrum_weight,
+            known_spectra=known_spectra,
+            known_species=known_species,
+            fix_initial_spectrum=fix_initial_spectrum,
+            fix_final_spectrum=fix_final_spectrum,
+            progress_callback=progress_callback,
+        )
+    if model == "mbfe3_sulfide_hss_transsulfuration_no_auto":
+        return fit_mbfe3_sulfide_hss_transsulfuration_no_auto(
             experiment,
             c0=c0,
             hss_ratio=hss_ratio,
