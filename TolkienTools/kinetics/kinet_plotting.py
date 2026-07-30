@@ -396,6 +396,103 @@ def plot_experiment_overview(
     return auto_region
 
 
+def plot_sulfide_no_binding_t0_diagnostic(
+    experiment: Experiment,
+    estimate,
+) -> None:
+    """Show the model-specific diagnostic used to suggest reaction t0."""
+    import sys
+
+    import matplotlib.pyplot as plt
+
+    fig, axes = plt.subplots(2, 2, figsize=(15, 9), constrained_layout=True)
+    fig.suptitle(
+        "MbFeIII + HS- without binding in the fitted window: t0 diagnostic"
+    )
+
+    plot_time_colored_spectra(
+        estimate.corrected,
+        (
+            "Spectra corrected with "
+            f"{estimate.baseline_region[0]:g}-{estimate.baseline_region[1]:g} nm"
+        ),
+        ax=axes[0, 0],
+        show_hover_labels=True,
+    )
+    axes[0, 0].axvline(428.0, color="0.35", linestyle=":", linewidth=1)
+
+    for target in (409.0, 428.0, 434.0):
+        index = int(np.argmin(np.abs(experiment.wavelength - target)))
+        axes[0, 1].plot(
+            experiment.t,
+            estimate.corrected.absorbance[index],
+            label=f"{experiment.wavelength[index]:g} nm",
+        )
+    axes[0, 1].axvline(
+        estimate.recommended_time,
+        color="black",
+        linestyle="--",
+        label=f"suggested t0 = {estimate.recommended_time:g}",
+    )
+    axes[0, 1].set_xlabel("Original time")
+    axes[0, 1].set_ylabel("Baseline-corrected absorbance")
+    axes[0, 1].set_title("Diagnostic Soret traces")
+    axes[0, 1].set_xlim(
+        experiment.t[0],
+        min(experiment.t[-1], estimate.plateau_region[1] + 20.0),
+    )
+    axes[0, 1].legend()
+
+    axes[1, 0].plot(experiment.t, estimate.plateau_distance)
+    axes[1, 0].axhline(0.005, color="0.5", linestyle=":", label="0.5% criterion")
+    axes[1, 0].axvline(
+        estimate.recommended_time,
+        color="black",
+        linestyle="--",
+        label=f"suggested t0 = {estimate.recommended_time:g}",
+    )
+    axes[1, 0].axvspan(
+        estimate.plateau_region[0],
+        estimate.plateau_region[1],
+        color="0.85",
+        label="early plateau reference",
+    )
+    axes[1, 0].set_xlabel("Original time")
+    axes[1, 0].set_ylabel("Relative spectral distance")
+    axes[1, 0].set_title("Distance from early MbFeIII-HS plateau")
+    axes[1, 0].set_xlim(
+        experiment.t[0],
+        min(experiment.t[-1], estimate.plateau_region[1] + 20.0),
+    )
+    axes[1, 0].legend()
+
+    chosen = sorted(
+        {
+            0,
+            estimate.addition_index,
+            estimate.recommended_index,
+            min(experiment.t.size - 1, estimate.recommended_index + 2),
+            experiment.t.size - 1,
+        }
+    )
+    wavelength_mask = (
+        (experiment.wavelength >= 390.0) & (experiment.wavelength <= 650.0)
+    )
+    for index in chosen:
+        axes[1, 1].plot(
+            experiment.wavelength[wavelength_mask],
+            estimate.corrected.absorbance[wavelength_mask, index],
+            label=f"t = {experiment.t[index]:g}",
+        )
+    axes[1, 1].set_xlabel("Wavelength (nm)")
+    axes[1, 1].set_ylabel("Baseline-corrected absorbance")
+    axes[1, 1].set_title("Spectra around sulfide addition and suggested t0")
+    axes[1, 1].legend()
+
+    sys.stdout.flush()
+    plt.show()
+
+
 
 def plot_baseline_comparison(
     raw: Experiment,

@@ -726,6 +726,30 @@ $k_{\mathrm{cat}}$ (`k_auto`), que describe la aceleracion aparente asociada a l
 formacion de especies reactivas de azufre. Esta constante no debe interpretarse
 como una constante elemental de reduccion por una especie quimica unica.
 
+### Estimación automática del tiempo cero
+
+Los experimentos destinados a este modelo pueden contener, al comienzo del
+archivo, la estabilizacion de $\mathrm{MbFeIII}$ libre y la etapa rapida de
+binding posterior a la adicion de $\mathrm{HS^-}$. Aunque esas etapas no se
+incluyen en el ajuste, se usan para estimar donde debe comenzar la ventana del
+modelo sin binding.
+
+En el flujo interactivo se aplica primero una correccion diagnostica de linea de
+base entre 750 y 850 nm. El mayor salto espectral dentro de los primeros 120 s
+se toma como estimador de la adicion de sulfuro. Luego se construye un espectro
+de referencia usando la mediana de la meseta temprana, entre 20 y 60 s despues
+de ese salto. El tiempo cero sugerido es el primer espectro posterior a la
+adicion cuya distancia espectral relativa entre 390 y 650 nm es menor al
+0,5 % respecto de esa referencia.
+
+La figura diagnostica muestra los espectros corregidos, las trazas a 409, 428 y
+434 nm, la distancia a la meseta y los espectros alrededor del tiempo elegido.
+El valor propuesto se ofrece como tiempo inicial predeterminado y 750-850 nm
+como region de baseline predeterminada; ambas elecciones siguen siendo
+editables por el usuario. La estimacion identifica un comienzo operativo para
+el ajuste y no implica que el complejo $\mathrm{MbFeIII\!-\!HS}$ tenga pureza
+quimica absoluta.
+
 ## Reducción de MbFeIII por HS- con binding inicial
 
 Este modelo agrega una etapa inicial de coordinacion por sulfuro. Es apropiado

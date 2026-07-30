@@ -29,6 +29,7 @@ carpeta:
 - `kinet_fitting.py`: NNLS y optimizacion de constantes.
 - `kinet_linalg.py`: helpers de algebra lineal/SVD.
 - `kinet_plotting.py`: figuras exploratorias, diagnosticos y panel final.
+- `kinet_t0.py`: estimador de tiempo cero para la reduccion por sulfuro sin binding.
 - `kinet_export.py`: archivos finales de concentraciones, espectros puros, resumen y PNG.
 
 Cada analisis escribe sus artefactos en una subcarpeta
@@ -104,6 +105,15 @@ dx/dt = (k_slow + k_auto*x) * (1 - x)
 
 Este caso tiene una solucion analitica compacta y se evalua directamente en
 `kinet_models.py`, sin integracion numerica.
+
+En el flujo interactivo, este modelo activa un diagnostico especifico antes de
+la poda temporal. La rutina corrige provisoriamente la linea de base con
+750-850 nm, detecta el salto espectral temprano asociado a la adicion de HS- y
+propone como `t0` el primer espectro que representa la meseta temprana de
+`MbFeIII-HS`. El panel muestra los espectros corregidos, las trazas a 409, 428
+y 434 nm y la distancia espectral a la meseta. El tiempo sugerido y la region
+750-850 nm quedan como valores predeterminados en el dialogo, pero pueden
+reemplazarse manualmente.
 
 ### `mbfe3_sulfide_binding_autocatalytic`
 

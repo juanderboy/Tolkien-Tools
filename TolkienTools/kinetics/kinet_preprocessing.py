@@ -371,6 +371,7 @@ def ask_preprocessing_choices(
     default_fix_final_spectrum: bool = False,
     final_spectrum_unavailable_reason: str | None = None,
     overview_auto_region: tuple[float, float] | None = None,
+    preferred_baseline_region: tuple[float, float] | None = None,
 ) -> tuple[
     list[int],
     float | None,
@@ -482,12 +483,20 @@ def ask_preprocessing_choices(
             else:
                 raise ValueError("Final spectrum choice must be yes or no")
 
-    auto_region = suggest_auto_baseline_region(
-        dropped,
-        window_width=baseline_window,
-    )
+    if preferred_baseline_region is None:
+        auto_region = suggest_auto_baseline_region(
+            dropped,
+            window_width=baseline_window,
+        )
+    else:
+        auto_region = preferred_baseline_region
     print()
-    if overview_auto_region is not None and not np.allclose(
+    if preferred_baseline_region is not None:
+        print(
+            "Model-specific baseline suggestion: "
+            f"{auto_region[0]:g}-{auto_region[1]:g} nm"
+        )
+    elif overview_auto_region is not None and not np.allclose(
         auto_region,
         overview_auto_region,
     ):
@@ -590,6 +599,7 @@ def preprocess_experiment(
     default_fix_final_spectrum: bool = False,
     final_spectrum_unavailable_reason: str | None = None,
     overview_auto_region: tuple[float, float] | None = None,
+    preferred_baseline_region: tuple[float, float] | None = None,
 ) -> tuple[
     Experiment,
     tuple[float, float],
@@ -681,6 +691,7 @@ def preprocess_experiment(
             default_fix_final_spectrum=fix_final_spectrum,
             final_spectrum_unavailable_reason=final_spectrum_unavailable_reason,
             overview_auto_region=overview_auto_region,
+            preferred_baseline_region=preferred_baseline_region,
         )
         corrected, cropped, used_region = apply_preprocessing_choices(
             args,

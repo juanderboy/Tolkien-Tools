@@ -586,6 +586,7 @@ def main() -> None:
     fix_initial_spectrum = args.fix_initial_spectrum
     fix_final_spectrum = args.fix_final_spectrum
     overview_auto_region = None
+    preferred_baseline_region = None
     if interactive:
         print_exploration_message()
         overview_auto_region = plot_experiment_overview(
@@ -600,6 +601,36 @@ def main() -> None:
         print_model_presentation(model)
     if model in HSS_TRANSSULFURATION_MODELS and interactive:
         args.hss_ratio = ask_hss_ratio(args.hss_ratio)
+    if model == "mbfe3_sulfide_autocatalytic" and interactive:
+        from kinet_plotting import plot_sulfide_no_binding_t0_diagnostic
+        from kinet_t0 import estimate_sulfide_no_binding_t0
+
+        try:
+            t0_estimate = estimate_sulfide_no_binding_t0(experiment)
+        except ValueError as exc:
+            print(f"Automatic t0 suggestion unavailable: {exc}")
+            print()
+        else:
+            print()
+            print("Automatic t0 suggestion for the model without binding")
+            print(
+                "  Diagnostic baseline: "
+                f"{t0_estimate.baseline_region[0]:g}-"
+                f"{t0_estimate.baseline_region[1]:g} nm"
+            )
+            print(f"  Detected sulfide-addition step: t = {t0_estimate.addition_time:g}")
+            print(f"  Suggested reaction start: t = {t0_estimate.recommended_time:g}")
+            print(
+                "  Criterion: first spectrum within 0.5% of the early "
+                "MbFeIII-HS plateau."
+            )
+            print("Close the diagnostic figure to continue.")
+            print()
+            plot_sulfide_no_binding_t0_diagnostic(experiment, t0_estimate)
+            if args.reaction_start_time is None:
+                args.reaction_start_time = t0_estimate.recommended_time
+            overview_auto_region = t0_estimate.baseline_region
+            preferred_baseline_region = t0_estimate.baseline_region
 
     allowed_work_range = allowed_work_range_from_known_spectra(known_specs, experiment)
     print_allowed_work_range_report(allowed_work_range)
@@ -638,6 +669,7 @@ def main() -> None:
         default_fix_final_spectrum=fix_final_spectrum,
         final_spectrum_unavailable_reason=final_spectrum_unavailable_reason,
         overview_auto_region=overview_auto_region,
+        preferred_baseline_region=preferred_baseline_region,
     )
     if allowed_work_range is not None:
         print(f"Fit wavelength range selected: {work_range[0]:g}-{work_range[1]:g} nm")
