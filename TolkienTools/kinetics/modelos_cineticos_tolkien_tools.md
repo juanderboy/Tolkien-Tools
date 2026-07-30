@@ -659,10 +659,11 @@ integrar el sistema y volver a resolver NNLS, estos ajustes pueden demorar mas
 que los modelos generales. Esto es especialmente notorio en los modelos con
 HSS-, que tienen mas parametros cineticos y especies internas.
 
-En la implementacion actual, el modelo autocatalitico simple y el modelo con
-binding inicial usan Powell como optimizador externo. Los modelos con HSS- usan
-`L-BFGS-B` en espacio logaritmico para acelerar la busqueda dentro de los
-rangos permitidos.
+En la implementacion actual, el modelo autocatalitico simple, el modelo con
+binding inicial y el modelo de transsulfuracion sin autocatalisis usan Powell
+con multiples puntos iniciales como optimizador externo. El modelo completo de
+transsulfuracion con autocatalisis usa `L-BFGS-B` en espacio logaritmico para
+acelerar la busqueda dentro de los rangos permitidos.
 
 ## Reducción de MbFeIII por HS- sin binding inicial
 

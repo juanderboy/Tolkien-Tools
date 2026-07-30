@@ -1134,8 +1134,7 @@ def fit_mbfe3_sulfide_hss_transsulfuration_no_auto(
         k_bounds,
         parameter_bounds=parameter_bounds,
         progress_callback=progress_callback,
-        optimizer="lbfgsb",
-        max_starts=1,
+        optimizer="powell",
     )
     known_scale_report = extract_known_scale_report(params, known_species)
     known_scale_by_index = known_scale_parameters(
