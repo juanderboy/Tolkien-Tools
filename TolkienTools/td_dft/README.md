@@ -3,7 +3,7 @@
 Rutina conectada actualmente:
 
 ```text
-/home/juanderboy/scripts/TolkienTools/td_dft/td_analyze.py
+TolkienTools/td_dft/td_analyze.py
 ```
 
 Uso desde el menu maestro:

@@ -3,7 +3,7 @@
 Rutina conectada actualmente:
 
 ```text
-/home/juanderboy/scripts/TolkienTools/kinetics/kinet_python.py
+TolkienTools/kinetics/kinet_python.py
 ```
 
 Uso desde el menu maestro:
@@ -248,9 +248,3 @@ En el flujo interactivo, la misma opcion se pregunta inmediatamente despues de
 descartar espectros/tiempos. De esa manera el "primer espectro" y el "ultimo
 espectro" son los extremos que quedan luego de la poda temporal y que entraran
 al ajuste.
-
-Backup previo a la separacion:
-
-```text
-kinet_python.py.backup_before_split
-```

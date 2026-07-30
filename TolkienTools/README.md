@@ -27,7 +27,7 @@ Los argumentos despues del numero se pasan directo a la rutina elegida, por
 ejemplo:
 
 ```bash
-tolkien-tools 4 117.txt --fit-method pinv --no-plot
+tolkien-tools 4 117.txt --fit-method nnls --no-plot
 ```
 
 Rutinas conectadas inicialmente:
@@ -46,12 +46,13 @@ necesitan las rutinas que buscan archivos en la carpeta actual.
 
 ## Instalacion basica
 
-Clonar o descargar el repositorio en una carpeta estable. Por ejemplo:
+Clonar el repositorio publico en la ubicacion estable usada para herramientas:
 
 ```bash
-cd ~
-git clone <URL_DEL_REPOSITORIO> tolkien-tools
-cd tolkien-tools
+mkdir -p ~/Soft
+cd ~/Soft
+git clone git@github.com:juanderboy/Tolkien-Tools.git
+cd Tolkien-Tools
 ```
 
 Instalar las dependencias Python principales y los paquetes opcionales del
@@ -66,13 +67,13 @@ poder llamarlo desde cualquier carpeta, asegurar que tenga permiso de ejecucion
 y agregar esa carpeta al `PATH` en `~/.bashrc`:
 
 ```bash
-chmod +x ~/tolkien-tools/tolkien-tools
-echo 'export PATH="$HOME/tolkien-tools:$PATH"' >> ~/.bashrc
+chmod +x ~/Soft/Tolkien-Tools/tolkien-tools
+echo 'export PATH="$HOME/Soft/Tolkien-Tools:$PATH"' >> ~/.bashrc
 source ~/.bashrc
 ```
 
 Si el repositorio se instalo en otra ubicacion, reemplazar
-`$HOME/tolkien-tools` por la ruta correspondiente.
+`$HOME/Soft/Tolkien-Tools` por la ruta correspondiente.
 
 Comprobar la instalacion:
 
