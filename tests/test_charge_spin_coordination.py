@@ -158,6 +158,25 @@ class CoordinationProposalTests(unittest.TestCase):
         self.assertEqual(fragments[0]["label"], "selected_region")
         self.assertEqual(fragments[0]["atom_ids"], [1, 2])
 
+    def test_fragment_selection_reprompts_after_unknown_group_name(self):
+        answers = iter(["Fe+Porphyrin", "FE88 L1", "88 1-2", ""])
+        with patch("builtins.input", side_effect=lambda _prompt: next(answers)):
+            fragments = charge_spin_cli.prompt_spin_fragment_configs(
+                [1, 2, 88],
+                {1: "N", 2: "C", 88: "Fe"},
+            )
+
+        self.assertEqual(
+            fragments,
+            [
+                {
+                    "id": "fragment_Fe_Porphyrin",
+                    "label": "Fe+Porphyrin",
+                    "atom_ids": [88, 1, 2],
+                }
+            ],
+        )
+
     def test_spin_fraction_uses_only_selected_entity_values(self):
         selected_spins = np.array([[0.6, 0.2], [0.3, 0.3]])
 

@@ -78,6 +78,10 @@ from charge_spin_viewer import (
 )
 
 
+class AtomSelectionError(ValueError):
+    """Raised when an interactive atom-selection expression is invalid."""
+
+
 def parse_atom_selection_with_ranges(
     atom_ids_str,
     remaining_atom_ids=None,
@@ -95,16 +99,18 @@ def parse_atom_selection_with_ranges(
         normalized_token = token.lower()
         if normalized_token == "remaining":
             if remaining_atom_ids is None:
-                print("Error: 'remaining' is only available while defining molecular fragments.")
-                sys.exit(1)
+                raise AtomSelectionError(
+                    "'remaining' is only available while defining molecular fragments."
+                )
             atom_ids.extend(remaining_atom_ids)
         elif normalized_token in named_groups:
             atom_ids.extend(named_groups[normalized_token])
         elif "-" in token:
             parts = token.split("-")
             if len(parts) != 2 or not parts[0].isdigit() or not parts[1].isdigit():
-                print(f"Error: invalid atom range '{token}'. Use forms like 10-18.")
-                sys.exit(1)
+                raise AtomSelectionError(
+                    f"invalid atom range '{token}'. Use forms like 10-18."
+                )
             start = int(parts[0])
             end = int(parts[1])
             step = 1 if end >= start else -1
@@ -113,8 +119,10 @@ def parse_atom_selection_with_ranges(
             try:
                 atom_ids.append(int(token))
             except ValueError:
-                print("Error: atom numbers must be integers separated by spaces.")
-                sys.exit(1)
+                raise AtomSelectionError(
+                    f"atom selection token '{token}' is not recognized. "
+                    "Use atom numbers, ranges, or one of the listed group names."
+                ) from None
 
     deduped = []
     for aid in atom_ids:
@@ -353,34 +361,45 @@ def prompt_spin_fragment_configs(
                 print("Error: at least one fragment is required.")
                 continue
 
-            atoms_str = input(f"Atoms in fragment '{label}': ").strip()
-            remaining_atom_ids = [aid for aid in available_atom_ids if aid not in used_atoms]
-            atom_ids = parse_atom_selection_with_ranges(
-                atoms_str,
-                remaining_atom_ids=remaining_atom_ids,
-                named_groups=named_groups,
-            )
-            if not atom_ids:
-                print("Error: no atoms were provided for this fragment.")
-                sys.exit(1)
-
-            invalid = [aid for aid in atom_ids if aid not in available_atom_set]
-            if invalid:
-                print(
-                    "Error: these atoms are not available in the current spin analysis: "
-                    + " ".join(str(aid) for aid in invalid)
-                )
-                sys.exit(1)
-
-            repeated = [aid for aid in atom_ids if aid in used_atoms]
-            if repeated:
-                for aid in repeated:
-                    previous_fragment = used_atom_to_fragment.get(aid, "?")
-                    print(
-                        f"El atomo {aid} ya fue asignado al fragmento "
-                        f"{previous_fragment}. Revisa tu asignacion."
+            while True:
+                atoms_str = input(f"Atoms in fragment '{label}': ").strip()
+                remaining_atom_ids = [aid for aid in available_atom_ids if aid not in used_atoms]
+                try:
+                    atom_ids = parse_atom_selection_with_ranges(
+                        atoms_str,
+                        remaining_atom_ids=remaining_atom_ids,
+                        named_groups=named_groups,
                     )
-                continue
+                except AtomSelectionError as exc:
+                    print(f"Error: {exc}")
+                    print("Please enter the atoms for this fragment again.")
+                    continue
+
+                if not atom_ids:
+                    print("Error: no atoms were provided for this fragment.")
+                    print("Please enter the atoms for this fragment again.")
+                    continue
+
+                invalid = [aid for aid in atom_ids if aid not in available_atom_set]
+                if invalid:
+                    print(
+                        "Error: these atoms are not available in the current spin analysis: "
+                        + " ".join(str(aid) for aid in invalid)
+                    )
+                    print("Please enter the atoms for this fragment again.")
+                    continue
+
+                repeated = [aid for aid in atom_ids if aid in used_atoms]
+                if repeated:
+                    for aid in repeated:
+                        previous_fragment = used_atom_to_fragment.get(aid, "?")
+                        print(
+                            f"El atomo {aid} ya fue asignado al fragmento "
+                            f"{previous_fragment}. Revisa tu asignacion."
+                        )
+                    print("Please enter the atoms for this fragment again.")
+                    continue
+                break
 
             safe_label = sanitize_output_token(label)
             fragment_id = f"fragment_{safe_label}"
