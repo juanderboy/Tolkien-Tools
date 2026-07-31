@@ -750,6 +750,48 @@ editables por el usuario. La estimacion identifica un comienzo operativo para
 el ajuste y no implica que el complejo $\mathrm{MbFeIII\!-\!HS}$ tenga pureza
 quimica absoluta.
 
+## Reducción de MbFeIII por HSS- sin binding inicial
+
+Este mecanismo se usa cuando la reaccion de $\mathrm{HSS^-}$ con la mioglobina
+ferrica es demasiado rapida para resolver el binding dentro de la ventana
+cinetica ajustada. Los espectros iniciales del archivo se conservan para
+localizar la adicion y la formacion de la especie que absorbe alrededor de
+428 nm, pero el ajuste comienza una vez formada
+$\mathrm{MbFeIII\!-\!HSS}$.
+
+Desde el tiempo cero seleccionado se usa una conversion irreversible de primer
+orden:
+
+$$
+\mathrm{MbFeIII\!-\!HSS}
+\xrightarrow{k}
+\mathrm{MbFeII}
+$$
+
+con perfiles:
+
+$$
+[\mathrm{MbFeIII\!-\!HSS}](t)=c_0e^{-kt},\qquad
+[\mathrm{MbFeII}](t)=c_0-[\mathrm{MbFeIII\!-\!HSS}](t).
+$$
+
+El unico parametro cinetico es $k$. No se incluye un termino autocatalitico.
+En el flujo interactivo se corrige provisoriamente la linea de base entre 750 y
+850 nm y se usa el cambio conjunto de la region de Soret para localizar la
+adicion. A partir del maximo local de la traza de 409 nm se ajusta la perdida
+rapida de MbFeIII mediante:
+
+$$
+A_{409}(t)=a+b e^{-k_{\mathrm{fast}}t}+mt.
+$$
+
+El termino lineal permite que la reduccion mas lenta ya este avanzando durante
+el binding. El final operativo de la fase rapida se fija en cuatro constantes
+de tiempo ($4/k_{\mathrm{fast}}$, aproximadamente 98 % de avance) y `t0` es el
+primer espectro medido posterior. El panel diagnostico muestra tambien 428 y
+434 nm para verificar la formacion del producto coordinado. El valor propuesto
+puede corregirse manualmente antes de ajustar.
+
 ## Reducción de MbFeIII por HS- con binding inicial
 
 Este modelo agrega una etapa inicial de coordinacion por sulfuro. Es apropiado

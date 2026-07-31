@@ -11,7 +11,10 @@ KINETICS_DIR = Path(__file__).resolve().parents[1] / "TolkienTools" / "kinetics"
 sys.path.insert(0, str(KINETICS_DIR))
 
 from kinet_common import Experiment  # noqa: E402
-from kinet_t0 import estimate_sulfide_no_binding_t0  # noqa: E402
+from kinet_t0 import (  # noqa: E402
+    estimate_hss_no_binding_t0,
+    estimate_sulfide_no_binding_t0,
+)
 
 
 class SulfideNoBindingT0EstimatorTests(unittest.TestCase):
@@ -60,3 +63,14 @@ class SulfideNoBindingT0EstimatorTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "Baseline correction"):
             estimate_sulfide_no_binding_t0(truncated)
+
+    def test_hss_estimator_finds_end_of_rapid_binding_decay(self) -> None:
+        experiment = self.build_experiment()
+
+        hss = estimate_hss_no_binding_t0(experiment)
+
+        self.assertAlmostEqual(hss.addition_time, 20.0, delta=0.5)
+        self.assertGreater(hss.binding_rate, 0.3)
+        self.assertGreaterEqual(hss.recommended_time, hss.binding_end_time)
+        self.assertLess(hss.recommended_time, 30.0)
+        self.assertLess(hss.recommended_time, 40.0)

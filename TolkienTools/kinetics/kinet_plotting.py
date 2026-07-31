@@ -399,6 +399,8 @@ def plot_experiment_overview(
 def plot_sulfide_no_binding_t0_diagnostic(
     experiment: Experiment,
     estimate,
+    reagent: str = "HS-",
+    intermediate: str = "MbFeIII-HS",
 ) -> None:
     """Show the model-specific diagnostic used to suggest reaction t0."""
     import sys
@@ -407,7 +409,7 @@ def plot_sulfide_no_binding_t0_diagnostic(
 
     fig, axes = plt.subplots(2, 2, figsize=(15, 9), constrained_layout=True)
     fig.suptitle(
-        "MbFeIII + HS- without binding in the fitted window: t0 diagnostic"
+        f"MbFeIII + {reagent} without binding in the fitted window: t0 diagnostic"
     )
 
     plot_time_colored_spectra(
@@ -459,7 +461,7 @@ def plot_sulfide_no_binding_t0_diagnostic(
     )
     axes[1, 0].set_xlabel("Original time")
     axes[1, 0].set_ylabel("Relative spectral distance")
-    axes[1, 0].set_title("Distance from early MbFeIII-HS plateau")
+    axes[1, 0].set_title(f"Distance from early {intermediate} plateau")
     axes[1, 0].set_xlim(
         experiment.t[0],
         min(experiment.t[-1], estimate.plateau_region[1] + 20.0),
@@ -486,7 +488,122 @@ def plot_sulfide_no_binding_t0_diagnostic(
         )
     axes[1, 1].set_xlabel("Wavelength (nm)")
     axes[1, 1].set_ylabel("Baseline-corrected absorbance")
-    axes[1, 1].set_title("Spectra around sulfide addition and suggested t0")
+    axes[1, 1].set_title(f"Spectra around {reagent} addition and suggested t0")
+    axes[1, 1].legend()
+
+    sys.stdout.flush()
+    plt.show()
+
+
+def plot_hss_no_binding_t0_diagnostic(
+    experiment: Experiment,
+    estimate,
+) -> None:
+    """Show the rapid-binding fit used to choose HSS- reaction t0."""
+    import sys
+
+    import matplotlib.pyplot as plt
+
+    fig, axes = plt.subplots(2, 2, figsize=(15, 9), constrained_layout=True)
+    fig.suptitle("MbFeIII + HSS-: rapid-binding endpoint and fitted reaction t0")
+
+    plot_time_colored_spectra(
+        estimate.corrected,
+        (
+            "Spectra corrected with "
+            f"{estimate.baseline_region[0]:g}-{estimate.baseline_region[1]:g} nm"
+        ),
+        ax=axes[0, 0],
+        show_hover_labels=True,
+    )
+    for target in (409.0, 428.0, 434.0):
+        axes[0, 0].axvline(target, color="0.35", linestyle=":", linewidth=1)
+
+    for target in (409.0, 428.0, 434.0):
+        index = int(np.argmin(np.abs(experiment.wavelength - target)))
+        axes[0, 1].plot(
+            experiment.t,
+            estimate.corrected.absorbance[index],
+            label=f"{experiment.wavelength[index]:g} nm",
+        )
+    axes[0, 1].axvspan(
+        estimate.fit_region[0],
+        estimate.fit_region[1],
+        color="0.9",
+        label="rapid-binding fit window",
+    )
+    axes[0, 1].axvline(
+        estimate.recommended_time,
+        color="black",
+        linestyle="--",
+        label=f"suggested t0 = {estimate.recommended_time:g}",
+    )
+    axes[0, 1].set_xlabel("Original time")
+    axes[0, 1].set_ylabel("Baseline-corrected absorbance")
+    axes[0, 1].set_title("Soret traces")
+    axes[0, 1].set_xlim(
+        experiment.t[0],
+        min(experiment.t[-1], estimate.recommended_time + 20.0),
+    )
+    axes[0, 1].legend()
+
+    fit_display = (
+        (experiment.t >= estimate.fit_region[0])
+        & (experiment.t <= estimate.fit_region[1])
+    )
+    axes[1, 0].plot(
+        experiment.t[fit_display],
+        estimate.observed_trace[fit_display],
+        "o",
+        markersize=4,
+        label=f"{estimate.diagnostic_wavelength:g} nm observed",
+    )
+    axes[1, 0].plot(
+        experiment.t[fit_display],
+        estimate.fitted_trace[fit_display],
+        "-",
+        label=f"exponential fit, k_fast = {estimate.binding_rate:.4g}",
+    )
+    axes[1, 0].axvline(
+        estimate.binding_end_time,
+        color="0.35",
+        linestyle=":",
+        label=(
+            f"{estimate.completion_time_constants:g} tau = "
+            f"{estimate.binding_end_time:.3g}"
+        ),
+    )
+    axes[1, 0].axvline(
+        estimate.recommended_time,
+        color="black",
+        linestyle="--",
+        label=f"first measured t0 = {estimate.recommended_time:g}",
+    )
+    axes[1, 0].set_xlabel("Original time")
+    axes[1, 0].set_ylabel("Baseline-corrected absorbance")
+    axes[1, 0].set_title("Rapid loss of MbFeIII at 409 nm")
+    axes[1, 0].legend()
+
+    chosen = sorted(
+        {
+            estimate.addition_index,
+            estimate.binding_start_index,
+            estimate.recommended_index,
+            min(experiment.t.size - 1, estimate.recommended_index + 2),
+        }
+    )
+    wavelength_mask = (
+        (experiment.wavelength >= 390.0) & (experiment.wavelength <= 650.0)
+    )
+    for index in chosen:
+        axes[1, 1].plot(
+            experiment.wavelength[wavelength_mask],
+            estimate.corrected.absorbance[wavelength_mask, index],
+            label=f"t = {experiment.t[index]:g}",
+        )
+    axes[1, 1].set_xlabel("Wavelength (nm)")
+    axes[1, 1].set_ylabel("Baseline-corrected absorbance")
+    axes[1, 1].set_title("Spectra around HSS- addition and fitted t0")
     axes[1, 1].legend()
 
     sys.stdout.flush()
@@ -649,7 +766,11 @@ def plot_result(
         "Baseline-corrected spectra",
         ax=axes["spectra"],
     )
-    if result.model in {"a_to_b", "mbfe3_sulfide_autocatalytic"}:
+    if result.model in {
+        "a_to_b",
+        "mbfe3_hss_no_binding",
+        "mbfe3_sulfide_autocatalytic",
+    }:
         add_two_species_direction_guides(axes["spectra"], experiment)
 
     ax_overlay = axes["fit_overlay"]

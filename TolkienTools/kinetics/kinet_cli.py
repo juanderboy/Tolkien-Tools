@@ -178,6 +178,21 @@ def print_model_presentation(model: str) -> None:
     print()
 
 
+def apply_model_default_wavelength_range(
+    args: argparse.Namespace,
+    model: str,
+) -> None:
+    """Use the Soret/visible window by default for special mechanisms."""
+    if model in SPECIAL_MODEL_LABELS:
+        default_min, default_max = 385.0, 650.0
+    else:
+        default_min, default_max = 320.0, 820.0
+    if args.lambda_min is None:
+        args.lambda_min = default_min
+    if args.lambda_max is None:
+        args.lambda_max = default_max
+
+
 def parse_known_spectrum_specs(texts: list[str]) -> list[KnownSpectrumSpec]:
     """Parse all known-spectrum CLI specifications."""
     return [parse_known_spectrum_spec(text) for text in texts]
@@ -406,8 +421,24 @@ def build_parser() -> argparse.ArgumentParser:
         description="Fit multiwavelength spectrophotometric kinetic data."
     )
     parser.add_argument("input", nargs="?", default="117.txt", help="Input text file")
-    parser.add_argument("--lambda-min", type=float, default=320.0)
-    parser.add_argument("--lambda-max", type=float, default=820.0)
+    parser.add_argument(
+        "--lambda-min",
+        type=float,
+        default=None,
+        help=(
+            "Lower fit wavelength. Defaults to 385 nm for special mechanisms "
+            "and 320 nm for general models."
+        ),
+    )
+    parser.add_argument(
+        "--lambda-max",
+        type=float,
+        default=None,
+        help=(
+            "Upper fit wavelength. Defaults to 650 nm for special mechanisms "
+            "and 820 nm for general models."
+        ),
+    )
     parser.add_argument("--baseline-points", type=int, default=20)
     parser.add_argument(
         "--baseline-mode",
@@ -599,34 +630,78 @@ def main() -> None:
             known_specs = ask_known_spectra_choice(model)
     else:
         print_model_presentation(model)
+    apply_model_default_wavelength_range(args, model)
     if model in HSS_TRANSSULFURATION_MODELS and interactive:
         args.hss_ratio = ask_hss_ratio(args.hss_ratio)
-    if model == "mbfe3_sulfide_autocatalytic" and interactive:
-        from kinet_plotting import plot_sulfide_no_binding_t0_diagnostic
-        from kinet_t0 import estimate_sulfide_no_binding_t0
+    if (
+        model in {"mbfe3_hss_no_binding", "mbfe3_sulfide_autocatalytic"}
+        and interactive
+    ):
+        from kinet_plotting import (
+            plot_hss_no_binding_t0_diagnostic,
+            plot_sulfide_no_binding_t0_diagnostic,
+        )
+        from kinet_t0 import (
+            estimate_hss_no_binding_t0,
+            estimate_sulfide_no_binding_t0,
+        )
+
+        is_hss = model == "mbfe3_hss_no_binding"
+        estimator = (
+            estimate_hss_no_binding_t0 if is_hss else estimate_sulfide_no_binding_t0
+        )
+        reagent = "HSS-" if is_hss else "HS-"
+        intermediate = "MbFeIII-HSS" if is_hss else "MbFeIII-HS"
 
         try:
-            t0_estimate = estimate_sulfide_no_binding_t0(experiment)
+            t0_estimate = estimator(experiment)
         except ValueError as exc:
             print(f"Automatic t0 suggestion unavailable: {exc}")
             print()
         else:
             print()
-            print("Automatic t0 suggestion for the model without binding")
+            print(f"Automatic t0 suggestion for the {reagent} model without binding")
             print(
                 "  Diagnostic baseline: "
                 f"{t0_estimate.baseline_region[0]:g}-"
                 f"{t0_estimate.baseline_region[1]:g} nm"
             )
-            print(f"  Detected sulfide-addition step: t = {t0_estimate.addition_time:g}")
-            print(f"  Suggested reaction start: t = {t0_estimate.recommended_time:g}")
             print(
-                "  Criterion: first spectrum within 0.5% of the early "
-                "MbFeIII-HS plateau."
+                f"  Detected {reagent} addition step: "
+                f"t = {t0_estimate.addition_time:g}"
             )
+            if is_hss:
+                print(
+                    "  Rapid binding decay at "
+                    f"{t0_estimate.diagnostic_wavelength:g} nm: "
+                    f"k_fast = {t0_estimate.binding_rate:.6g}"
+                )
+                print(
+                    "  Estimated binding endpoint "
+                    f"({t0_estimate.completion_time_constants:g} tau): "
+                    f"t = {t0_estimate.binding_end_time:.6g}"
+                )
+                print(
+                    "  Criterion: first measured spectrum after the rapid "
+                    "binding phase is about 98% complete."
+                )
+            else:
+                print(
+                    "  Criterion: first spectrum within 0.5% of the early "
+                    f"{intermediate} plateau."
+                )
+            print(f"  Suggested reaction start: t = {t0_estimate.recommended_time:g}")
             print("Close the diagnostic figure to continue.")
             print()
-            plot_sulfide_no_binding_t0_diagnostic(experiment, t0_estimate)
+            if is_hss:
+                plot_hss_no_binding_t0_diagnostic(experiment, t0_estimate)
+            else:
+                plot_sulfide_no_binding_t0_diagnostic(
+                    experiment,
+                    t0_estimate,
+                    reagent=reagent,
+                    intermediate=intermediate,
+                )
             if args.reaction_start_time is None:
                 args.reaction_start_time = t0_estimate.recommended_time
             overview_auto_region = t0_estimate.baseline_region

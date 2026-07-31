@@ -15,6 +15,9 @@ GENERAL_MODEL_LABELS = {
 }
 
 SPECIAL_MODEL_LABELS = {
+    "mbfe3_hss_no_binding": (
+        "reduccion de MbFe(III) por HSS- sin binding en la ventana ajustada"
+    ),
     "mbfe3_sulfide_autocatalytic": "reduccion autocatalitica de MbFe(III) por sulfuros",
     "mbfe3_sulfide_binding_autocatalytic": (
         "reduccion autocatalitica de MbFe(III) por sulfuros con binding inicial"
@@ -38,6 +41,7 @@ MODEL_SPECIES = {
     "a_to_b": ("A", "B"),
     "a_to_b_to_c": ("A", "B", "C"),
     "a_rev_b_to_c": ("A", "B", "C"),
+    "mbfe3_hss_no_binding": ("MbFeIII-HSS", "MbFeII"),
     "mbfe3_sulfide_autocatalytic": ("MbFeIII-SH", "MbFeII"),
     "mbfe3_sulfide_binding_autocatalytic": ("MbFeIII", "MbFeIII-HS", "MbFeII"),
     "mbfe3_sulfide_hss_transsulfuration": ("MbFeIII-Sx", "MbFeII"),
@@ -106,6 +110,24 @@ MODEL_PRESENTATIONS = {
         ),
         "notes": (
             "Los perfiles temporales se calculan resolviendo el sistema lineal.",
+        ),
+    },
+    "mbfe3_hss_no_binding": {
+        "scheme": "MbFeIII-HSS -> MbFeII",
+        "profiles": (
+            "[MbFeIII-HSS](t) = c0 * exp(-k * t)",
+            "[MbFeII](t) = c0 - [MbFeIII-HSS](t)",
+        ),
+        "parameters": (
+            "k: constante aparente de primer orden para MbFeIII-HSS -> MbFeII",
+        ),
+        "notes": (
+            "El binding rapido de HSS- queda fuera de la ventana ajustada.",
+            (
+                "El tiempo cero se estima ajustando el decaimiento rapido "
+                "de MbFeIII a 409 nm; 428 y 434 nm se muestran como control."
+            ),
+            "No se incluye ningun proceso autocatalitico.",
         ),
     },
     "mbfe3_sulfide_autocatalytic": {

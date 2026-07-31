@@ -51,6 +51,11 @@ Una vez elegido el modelo, la rutina imprime una presentacion basica con el
 esquema cinetico, las especies absorbentes, la evolucion temporal ajustada, los
 parametros y notas de interpretacion.
 
+Los mecanismos especiales usan por defecto la ventana de ajuste 385-650 nm.
+Los modelos generales conservan el intervalo predeterminado 320-820 nm. Ambos
+limites pueden reemplazarse con `--lambda-min` y `--lambda-max` o en el dialogo
+interactivo.
+
 ## Mecanismos especiales
 
 El menu de modelos incluye una categoria separada para analisis especificos de
@@ -69,6 +74,15 @@ un sistema quimico. Actualmente contiene:
   constantes (`k_on`, `k_slow,obs`, `k_auto`). En un experimento individual,
   `k_on` se trata como constante aparente pseudo-primer orden; para estimar un
   `k_on` bimolecular hay que considerar la concentracion efectiva de `HS-`.
+
+- `reduccion de MbFe(III) por HSS- sin binding en la ventana ajustada`: usa el
+  cambio de las trazas de Soret para localizar la adicion y ajusta el
+  decaimiento rapido de MbFeIII a 409 nm como un exponencial con una deriva
+  lenta superpuesta. Propone `t0` en cuatro constantes de tiempo, cuando el
+  binding de `HSS-` esta aproximadamente 98 % completo, y ajusta desde ese
+  tiempo una conversion irreversible de primer orden
+  `MbFeIII-HSS -> MbFeII`. Ajusta una unica constante `k` y no incluye
+  autocatálisis.
 
 - `reduccion de MbFe(III)-HS por HSS- agregado con transsulfuracion`: parte de
   `MbFeIII-HS` ya formado por exceso de `HS-` y agrega una cantidad conocida de

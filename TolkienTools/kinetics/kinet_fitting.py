@@ -1501,6 +1501,21 @@ def fit_model(
             fix_final_spectrum=fix_final_spectrum,
             progress_callback=progress_callback,
         )
+    if model == "mbfe3_hss_no_binding":
+        return fit_a_to_b_direct(
+            experiment,
+            c0=c0,
+            n_components=n_components,
+            k_bounds=k_bounds,
+            spectra_method=method,
+            initial_spectrum_weight=initial_spectrum_weight,
+            known_spectra=known_spectra,
+            known_species=known_species,
+            fix_initial_spectrum=fix_initial_spectrum,
+            fix_final_spectrum=fix_final_spectrum,
+            result_model=model,
+            progress_callback=progress_callback,
+        )
     if model == "mbfe3_sulfide_autocatalytic":
         return fit_mbfe3_sulfide_autocatalytic(
             experiment,
