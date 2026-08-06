@@ -11,6 +11,7 @@ from pathlib import Path
 import numpy as np
 
 from kinet_common import (
+    Experiment,
     GENERAL_MODEL_LABELS,
     HSS_TRANSSULFURATION_MODELS,
     MODEL_LABELS,
@@ -247,6 +248,18 @@ def print_initial_spectrum_report(fix_initial_spectrum: bool, model: str) -> Non
         f"{first_species} uses the first experimental spectrum; "
         "remaining spectra fitted: "
         + (", ".join(fitted) if fitted else "none")
+    )
+    print()
+
+
+def print_initial_reference_report(index: int | None, experiment: Experiment) -> None:
+    """Report an initial spectrum selected independently of the fit window."""
+    if index is None:
+        return
+    print(
+        "Initial reference spectrum: "
+        f"original index {index + 1}, t = {experiment.t[index]:g}; "
+        "used as A while remaining spectra are fitted."
     )
     print()
 
@@ -488,6 +501,15 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--initial-spectrum-index",
+        type=int,
+        default=None,
+        help=(
+            "1-based original spectrum index to use as A, independently of "
+            "the time window kept for fitting"
+        ),
+    )
+    parser.add_argument(
         "--kd-lambda-start",
         type=float,
         default=None,
@@ -541,9 +563,24 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--fit-method",
-        choices=("nnls",),
+        choices=("nnls", "mcr_als"),
         default="nnls",
-        help="Spectral fitting method. Only nnls is supported.",
+        help=(
+            "Spectral fitting method. mcr_als is experimental and currently "
+            "supports only A -> B -> C and A <-> B -> C."
+        ),
+    )
+    parser.add_argument(
+        "--mcr-kinetic-weight",
+        type=float,
+        default=1.0,
+        help="Soft MCR-ALS weight keeping concentrations near the kinetic profile",
+    )
+    parser.add_argument(
+        "--mcr-max-iter",
+        type=int,
+        default=200,
+        help="Maximum number of MCR-ALS iterations",
     )
     parser.add_argument(
         "--known-spectrum",
@@ -611,7 +648,7 @@ def main() -> None:
     experiment = read_experiment(input_path)
 
     model = args.model
-    fit_method = "nnls"
+    fit_method = args.fit_method
     known_specs = parse_known_spectrum_specs(args.known_spectrum)
     interactive = not args.no_plot and not args.skip_preprocess_dialog
     fix_initial_spectrum = args.fix_initial_spectrum
@@ -733,11 +770,18 @@ def main() -> None:
         reaction_end_time,
         fix_initial_spectrum,
         fix_final_spectrum,
+        initial_spectrum_index,
+        initial_reference_spectrum,
     ) = preprocess_experiment(
         args,
         experiment,
         allowed_work_range=allowed_work_range,
-        initial_spectrum_label=first_species if interactive else None,
+        initial_spectrum_label=(
+            first_species
+            if model in {"a_to_b_to_c", "a_rev_b_to_c"}
+            and (interactive or args.initial_spectrum_index is not None)
+            else None
+        ),
         default_fix_initial_spectrum=fix_initial_spectrum,
         initial_spectrum_unavailable_reason=initial_spectrum_unavailable_reason,
         final_spectrum_label=last_species if interactive else None,
@@ -755,8 +799,21 @@ def main() -> None:
         MODEL_SPECIES[model],
         cropped.wavelength,
     )
+    if initial_reference_spectrum is not None:
+        if "A" in known_species:
+            raise ValueError("An initial reference spectrum for A was provided twice")
+        if known_spectra is None:
+            known_spectra = np.full(
+                (cropped.wavelength.size, len(MODEL_SPECIES[model])),
+                np.nan,
+            )
+        if "A" not in MODEL_SPECIES[model]:
+            raise ValueError("Initial reference spectrum is only supported for A-B-C models")
+        known_spectra[:, MODEL_SPECIES[model].index("A")] = initial_reference_spectrum
+        known_species = (*known_species, "A")
     print_known_spectra_report(known_species, model)
     print_initial_spectrum_report(fix_initial_spectrum, model)
+    print_initial_reference_report(initial_spectrum_index, experiment)
     print_final_spectrum_report(fix_final_spectrum, model)
     n_components = len(MODEL_SPECIES[model])
 
@@ -781,6 +838,8 @@ def main() -> None:
                 known_species=known_species,
                 fix_initial_spectrum=fix_initial_spectrum,
                 fix_final_spectrum=fix_final_spectrum,
+                mcr_kinetic_weight=args.mcr_kinetic_weight,
+                mcr_max_iter=args.mcr_max_iter,
                 progress_callback=progress,
             )
         finally:

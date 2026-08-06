@@ -330,12 +330,23 @@ def apply_preprocessing_choices(
     baseline_region: tuple[float, float] | None,
     baseline_points: int,
     work_range: tuple[float, float],
+    initial_spectrum_index: int | None = None,
 ) -> tuple[Experiment, Experiment, tuple[float, float] | None]:
     """Apply spectrum/time pruning, baseline correction and wavelength crop."""
     pruned = drop_spectra(experiment, drop_indices)
     pruned = end_reaction_at_time(pruned, reaction_end_time)
     pruned = start_reaction_at_time(pruned, reaction_start_time)
-    pruned = zero_time_at_first_spectrum(pruned)
+    if initial_spectrum_index is None:
+        pruned = zero_time_at_first_spectrum(pruned)
+    else:
+        if initial_spectrum_index < 0 or initial_spectrum_index >= experiment.t.size:
+            raise ValueError("Initial reference spectrum index is outside the experiment")
+        reference_time = float(experiment.t[initial_spectrum_index])
+        pruned = Experiment(
+            t=pruned.t - reference_time,
+            wavelength=pruned.wavelength,
+            absorbance=pruned.absorbance,
+        )
     if pruned.t.size < 2:
         raise ValueError("Time selection must leave at least two spectra")
     corrected_absorbance, used_region = corrected_absorbance_from_baseline_choice(
@@ -354,6 +365,38 @@ def apply_preprocessing_choices(
     return corrected, cropped, used_region
 
 
+def prepare_initial_reference_spectrum(
+    experiment: Experiment,
+    spectrum_index: int | None,
+    baseline_mode: str,
+    baseline_region: tuple[float, float] | None,
+    baseline_points: int,
+    baseline_window: float,
+    work_range: tuple[float, float],
+    used_region: tuple[float, float] | None,
+) -> np.ndarray | None:
+    """Return one baseline-corrected, cropped pre-fit reference spectrum."""
+    if spectrum_index is None:
+        return None
+    if spectrum_index < 0 or spectrum_index >= experiment.t.size:
+        raise ValueError("Initial reference spectrum index is outside the experiment")
+    one = Experiment(
+        t=experiment.t[spectrum_index : spectrum_index + 1],
+        wavelength=experiment.wavelength,
+        absorbance=experiment.absorbance[:, spectrum_index : spectrum_index + 1],
+    )
+    effective_mode = "region" if used_region is not None else baseline_mode
+    corrected, _ = corrected_absorbance_from_baseline_choice(
+        one,
+        effective_mode,
+        used_region if used_region is not None else baseline_region,
+        baseline_points,
+        baseline_window,
+    )
+    corrected_one = Experiment(t=one.t, wavelength=one.wavelength, absorbance=corrected)
+    return crop_wavelengths(corrected_one, work_range[0], work_range[1]).absorbance[:, 0]
+
+
 
 def ask_preprocessing_choices(
     experiment: Experiment,
@@ -367,6 +410,7 @@ def ask_preprocessing_choices(
     initial_spectrum_label: str | None = None,
     default_fix_initial_spectrum: bool = False,
     initial_spectrum_unavailable_reason: str | None = None,
+    default_initial_spectrum_index: int | None = None,
     final_spectrum_label: str | None = None,
     default_fix_final_spectrum: bool = False,
     final_spectrum_unavailable_reason: str | None = None,
@@ -377,6 +421,7 @@ def ask_preprocessing_choices(
     float | None,
     float | None,
     bool,
+    int | None,
     bool,
     str,
     tuple[float, float] | None,
@@ -428,6 +473,7 @@ def ask_preprocessing_choices(
         raise ValueError("Time selection must leave at least two spectra")
 
     fix_initial_spectrum = default_fix_initial_spectrum
+    initial_spectrum_index = default_initial_spectrum_index
     fix_final_spectrum = default_fix_final_spectrum
     if initial_spectrum_label is not None:
         if initial_spectrum_unavailable_reason is not None:
@@ -439,23 +485,35 @@ def ask_preprocessing_choices(
             print()
             print("Opcion de espectro inicial")
             print(
-                "Primer espectro despues de la poda temporal: "
-                f"indice 1, t_original = {first_kept_original_time:.6g}, "
-                "t_corregido = 0."
+                "Espectro del reactivo: Enter/no = no fijar; "
+                f"s = primer retenido (t_original = {first_kept_original_time:.6g}); "
+                "o indica el indice original de cualquier espectro previo."
             )
             initial_text = input(
-                "Tomar ese primer espectro como espectro fijo del reactivo "
-                f"{initial_spectrum_label} y ajustar solo los restantes? "
+                f"Espectro fijo para {initial_spectrum_label}? "
                 f"Enter = {default_text}: "
             ).strip().lower()
             if not initial_text:
                 fix_initial_spectrum = default_fix_initial_spectrum
+                initial_spectrum_index = default_initial_spectrum_index
             elif initial_text in {"s", "si", "sí", "y", "yes"}:
                 fix_initial_spectrum = True
+                initial_spectrum_index = None
             elif initial_text in {"n", "no"}:
                 fix_initial_spectrum = False
+                initial_spectrum_index = None
+            elif initial_text.isdigit():
+                original_index = int(initial_text)
+                if not 1 <= original_index <= experiment.t.size:
+                    raise ValueError(
+                        f"Initial spectrum index must be between 1 and {experiment.t.size}"
+                    )
+                initial_spectrum_index = original_index - 1
+                if initial_spectrum_index in drop_indices:
+                    raise ValueError("The initial reference spectrum was dropped")
+                fix_initial_spectrum = False
             else:
-                raise ValueError("Initial spectrum choice must be yes or no")
+                raise ValueError("Initial spectrum choice must be no, yes, s, or an index")
     if final_spectrum_label is not None:
         if final_spectrum_unavailable_reason is not None:
             print()
@@ -578,6 +636,7 @@ def ask_preprocessing_choices(
         reaction_start_time,
         reaction_end_time,
         fix_initial_spectrum,
+        initial_spectrum_index,
         fix_final_spectrum,
         baseline_mode,
         baseline_region,
@@ -608,6 +667,8 @@ def preprocess_experiment(
     float | None,
     bool,
     bool,
+    int | None,
+    np.ndarray | None,
 ]:
     """Apply optional spectrum removal and baseline correction."""
     drop_indices = parse_spectrum_selection(args.drop_spectra, experiment.t.size)
@@ -629,6 +690,16 @@ def preprocess_experiment(
     reaction_end_time = args.reaction_end_time
     fix_initial_spectrum = default_fix_initial_spectrum
     fix_final_spectrum = default_fix_final_spectrum
+    initial_spectrum_index = getattr(args, "initial_spectrum_index", None)
+    if initial_spectrum_index is not None:
+        initial_spectrum_index -= 1
+        if initial_spectrum_index < 0 or initial_spectrum_index >= experiment.t.size:
+            raise ValueError("--initial-spectrum-index is outside the experiment")
+        if initial_spectrum_index in drop_indices:
+            raise ValueError("--initial-spectrum-index refers to a dropped spectrum")
+        if initial_spectrum_label is None:
+            raise ValueError("An initial spectrum index requires an A-B-C model")
+        fix_initial_spectrum = False
 
     baseline_region = None
     if args.baseline_lambda_min is not None or args.baseline_lambda_max is not None:
@@ -642,7 +713,7 @@ def preprocess_experiment(
         )
 
     if args.no_plot or args.skip_preprocess_dialog:
-        corrected, _, _ = apply_preprocessing_choices(
+        corrected, _, used_region = apply_preprocessing_choices(
             args,
             experiment,
             drop_indices,
@@ -652,6 +723,7 @@ def preprocess_experiment(
             baseline_region,
             baseline_points,
             work_range,
+            initial_spectrum_index=initial_spectrum_index,
         )
         return (
             corrected,
@@ -661,6 +733,17 @@ def preprocess_experiment(
             reaction_end_time,
             fix_initial_spectrum,
             fix_final_spectrum,
+            initial_spectrum_index,
+            prepare_initial_reference_spectrum(
+                experiment,
+                initial_spectrum_index,
+                baseline_mode,
+                baseline_region,
+                baseline_points,
+                args.baseline_window,
+                work_range,
+                used_region,
+            ),
         )
 
     while True:
@@ -669,6 +752,7 @@ def preprocess_experiment(
             reaction_start_time,
             reaction_end_time,
             fix_initial_spectrum,
+            initial_spectrum_index,
             fix_final_spectrum,
             baseline_mode,
             baseline_region,
@@ -687,6 +771,7 @@ def preprocess_experiment(
             initial_spectrum_label=initial_spectrum_label,
             default_fix_initial_spectrum=fix_initial_spectrum,
             initial_spectrum_unavailable_reason=initial_spectrum_unavailable_reason,
+            default_initial_spectrum_index=initial_spectrum_index,
             final_spectrum_label=final_spectrum_label,
             default_fix_final_spectrum=fix_final_spectrum,
             final_spectrum_unavailable_reason=final_spectrum_unavailable_reason,
@@ -703,6 +788,7 @@ def preprocess_experiment(
             baseline_region,
             baseline_points,
             work_range,
+            initial_spectrum_index=initial_spectrum_index,
         )
         from kinet_plotting import plot_preprocessed_experiment_preview
 
@@ -729,6 +815,17 @@ def preprocess_experiment(
                 reaction_end_time,
                 fix_initial_spectrum,
                 fix_final_spectrum,
+                initial_spectrum_index,
+                prepare_initial_reference_spectrum(
+                    experiment,
+                    initial_spectrum_index,
+                    baseline_mode,
+                    baseline_region,
+                    baseline_points,
+                    args.baseline_window,
+                    work_range,
+                    used_region,
+                ),
             )
         if approve in {"n", "no"}:
             print()

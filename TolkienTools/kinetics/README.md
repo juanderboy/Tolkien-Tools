@@ -324,3 +324,28 @@ En el flujo interactivo, la misma opcion se pregunta inmediatamente despues de
 descartar espectros/tiempos. De esa manera el "primer espectro" y el "ultimo
 espectro" son los extremos que quedan luego de la poda temporal y que entraran
 al ajuste.
+
+En los modelos generales A-B-C, el menu tambien permite escribir el indice
+original de un espectro previo como referencia del reactivo. Ese espectro puede
+quedar fuera de la ventana cinetica: se usa para fijar A, mientras el ajuste
+comienza en `t_inicio`. En ese caso el reloj corregido queda referido al tiempo
+del espectro A seleccionado, no al primer espectro retenido.
+
+### MCR-ALS experimental
+
+Los modelos `a_to_b_to_c` y `a_rev_b_to_c` tambien aceptan
+`--fit-method mcr_als`. Este modo parte de un ajuste NNLS para inicializar las
+concentraciones y luego alterna la estimacion no negativa de espectros y
+concentraciones. Impone cierre de concentracion y permite mantener las
+concentraciones cerca del perfil cinetico mediante:
+
+```bash
+--mcr-kinetic-weight 1
+--mcr-max-iter 200
+```
+
+Es una herramienta exploratoria: los parametros cineticos reportados son la
+proyeccion del resultado MCR sobre el mecanismo elegido. Para experimentos con
+tiempo de induccion conocido, conviene fijar A desde un archivo de espectro
+obtenido del plateau previo, en vez de usar `--fix-initial-spectrum` sobre el
+primer espectro posterior a la inyeccion.
