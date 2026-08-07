@@ -310,6 +310,51 @@ tolkien-tools 4 experimento.dat \
   --fit-method nnls
 ```
 
+## Ajuste global de transulfuracion para varios valores de R
+
+Los dos mecanismos de transulfuracion pueden compartir sus constantes y sus
+espectros puros entre varios experimentos. El manifiesto debe contener las
+columnas `filename`, `R` y `c0_after`:
+
+```csv
+filename,R,c0_after
+experimento_R5.TXT,5,7.868852459e-6
+experimento_R10.TXT,10,7.741935484e-6
+```
+
+Ejemplo para el modelo sin autocatalisis:
+
+```bash
+tolkien-tools 4 \
+  --global-manifest serie.csv \
+  --global-root /ruta/a/los/datos \
+  --model mbfe3_sulfide_hss_transsulfuration_no_auto \
+  --fix-initial-spectrum \
+  --fix-final-spectrum \
+  --global-output-dir resultados_globales
+```
+
+El flujo global usa por defecto el tiempo de agregado de HSS- como `t = 47 s`,
+corrige la linea de base en 750-820 nm y ajusta 410-650 nm. Conserva el reloj
+quimico como `t_corregido = t_original - 47 s`, aunque el primer espectro
+retenido sea posterior. Cada experimento aporta el mismo peso total al objetivo
+para que una serie con mas tiempos no domine el ajuste.
+
+Las constantes `k_slow`, `k_ts`, `k_fast` y, en el modelo autocatalitico,
+`k_auto`, son globales. `R`, `c0_after` y los tiempos siguen siendo propios de
+cada archivo. Los valores de literatura/COPASI se usan solamente como punto de
+partida numerico; no quedan fijos ni penalizados.
+
+Si `k_fast` fue medido independientemente, puede retirarse del conjunto de
+parametros optimizados:
+
+```bash
+--global-fix-k-fast 0.001
+```
+
+El resumen marca explicitamente ese valor como fijo. Las demas constantes se
+siguen obteniendo del ajuste global multi-R.
+
 Tambien se pueden fijar ambos extremos:
 
 ```bash

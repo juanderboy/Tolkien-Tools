@@ -422,6 +422,45 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("input", nargs="?", default="117.txt", help="Input text file")
     parser.add_argument(
+        "--global-manifest",
+        default=None,
+        help=(
+            "CSV/TSV with filename,R,c0_after for a shared-parameter "
+            "transsulfuration fit"
+        ),
+    )
+    parser.add_argument(
+        "--global-root",
+        default=None,
+        help="Base directory for relative filenames in --global-manifest",
+    )
+    parser.add_argument(
+        "--global-time-zero",
+        type=float,
+        default=47.0,
+        help="Original time of HSS- addition for global fitting",
+    )
+    parser.add_argument(
+        "--global-output-dir",
+        default=None,
+        help="Optional directory for compact global-fit text outputs",
+    )
+    parser.add_argument(
+        "--global-max-starts",
+        type=int,
+        default=None,
+        help="Optional limit on optimizer multistarts for a global fit",
+    )
+    parser.add_argument(
+        "--global-fix-k-fast",
+        type=float,
+        default=None,
+        help=(
+            "Fix global k_fast (s^-1) to an independently measured value "
+            "instead of optimizing it"
+        ),
+    )
+    parser.add_argument(
         "--lambda-min",
         type=float,
         default=None,
@@ -604,6 +643,24 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> None:
     """Load data, preprocess, fit the kinetic model and report results."""
     args = build_parser().parse_args()
+
+    if args.global_manifest is not None:
+        if args.model not in HSS_TRANSSULFURATION_MODELS:
+            raise ValueError(
+                "--global-manifest requires one of the two transsulfuration models"
+            )
+        if args.lambda_min is None:
+            args.lambda_min = 410.0
+        if args.lambda_max is None:
+            args.lambda_max = 650.0
+        if args.baseline_lambda_min is None:
+            args.baseline_lambda_min = 750.0
+        if args.baseline_lambda_max is None:
+            args.baseline_lambda_max = 820.0
+        from kinet_global import run_global_from_args
+
+        run_global_from_args(args)
+        return
 
     print_startup_banner()
     source_input_path = Path(args.input)
