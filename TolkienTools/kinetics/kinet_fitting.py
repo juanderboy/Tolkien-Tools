@@ -10,6 +10,7 @@ from scipy.optimize import minimize, minimize_scalar, nnls
 
 from kinet_common import Experiment, FitResult, MODEL_SPECIES, PARAMETER_LABELS
 from kinet_linalg import factor_analysis
+from kinet_mcr import mcr_als_decompose
 from kinet_models import (
     concentration_profile_a_rev_b_to_c,
     concentration_profile_a_to_b,
@@ -1299,6 +1300,117 @@ def fit_a_to_b_to_c_direct(
     )
 
 
+def fit_a_to_b_to_c_mcr_als(
+    experiment: Experiment,
+    c0: float = 1.0,
+    n_components: int = 3,
+    k_bounds: tuple[float, float] = (1e-8, 1e-1),
+    initial_spectrum_weight: float = 0.0,
+    known_spectra: np.ndarray | None = None,
+    known_species: tuple[str, ...] = (),
+    fix_initial_spectrum: bool = False,
+    fix_final_spectrum: bool = False,
+    kinetic_weight: float = 1.0,
+    max_iter: int = 200,
+    progress_callback: ProgressCallback | None = None,
+) -> FitResult:
+    """Fit A -> B -> C with a soft kinetic MCR-ALS refinement.
+
+    A conventional NNLS kinetic fit supplies the initial kinetic profile.  ALS
+    then updates spectra and concentrations under nonnegativity and closure,
+    with ``kinetic_weight`` controlling how strongly concentrations stay near
+    that profile.  The returned kinetic parameters are a projection of the ALS
+    concentrations onto the A -> B -> C model and should be treated as
+    diagnostic rather than as a replacement for the hard kinetic fit.
+    """
+    if kinetic_weight < 0:
+        raise ValueError("--mcr-kinetic-weight must be nonnegative")
+    if max_iter <= 0:
+        raise ValueError("--mcr-max-iter must be positive")
+    if n_components != 3:
+        raise ValueError("The A -> B -> C MCR-ALS fit requires exactly 3 components.")
+
+    seed = fit_a_to_b_to_c_direct(
+        experiment,
+        c0=c0,
+        n_components=n_components,
+        k_bounds=k_bounds,
+        spectra_method="nnls",
+        initial_spectrum_weight=initial_spectrum_weight,
+        known_spectra=known_spectra,
+        known_species=known_species,
+        fix_initial_spectrum=fix_initial_spectrum,
+        fix_final_spectrum=fix_final_spectrum,
+        progress_callback=progress_callback,
+    )
+    known_for_mcr = np.full_like(seed.spectra, np.nan)
+    known_mask = np.zeros(n_components, dtype=bool)
+    if known_spectra is not None:
+        external_mask = np.all(np.isfinite(known_spectra), axis=0)
+        known_for_mcr[:, external_mask] = seed.spectra[:, external_mask]
+        known_mask |= external_mask
+    if fix_initial_spectrum:
+        known_for_mcr[:, 0] = seed.spectra[:, 0]
+        known_mask[0] = True
+    if fix_final_spectrum:
+        known_for_mcr[:, -1] = seed.spectra[:, -1]
+        known_mask[-1] = True
+
+    spectra, concentrations, _mcr_error, _iterations = mcr_als_decompose(
+        experiment.absorbance,
+        n_components=n_components,
+        initial_concentrations=seed.c,
+        known_spectra=known_for_mcr if np.any(known_mask) else None,
+        closure_total=c0,
+        kinetic_reference=seed.c,
+        kinetic_weight=kinetic_weight,
+        max_iter=max_iter,
+    )
+
+    parameter_names = ("k1", "k2")
+    parameter_bounds = {name: k_bounds for name in parameter_names}
+
+    def concentration_projection_error(params: dict[str, float]) -> float:
+        trial = concentration_profile_a_to_b_to_c(
+            experiment.t,
+            params["k1"],
+            params["k2"],
+            c0=c0,
+        )
+        return float(np.linalg.norm(concentrations - trial))
+
+    projected = optimize_kinetic_parameters(
+        concentration_projection_error,
+        parameter_names,
+        k_bounds,
+        parameter_bounds=parameter_bounds,
+        initial_parameters={"k1": seed.params["k1"], "k2": seed.params["k2"]},
+        optimizer="powell",
+        max_starts=1,
+    )
+    residuals = experiment.absorbance - spectra @ concentrations
+    q, w, singular_values = factor_analysis(experiment.absorbance, n_components)
+    known_scale_report = seed.known_spectrum_scales or {}
+    return FitResult(
+        method="mcr_als",
+        model="a_to_b_to_c",
+        params={name: projected[name] for name in parameter_names},
+        species_labels=MODEL_SPECIES["a_to_b_to_c"],
+        c=concentrations,
+        spectra=spectra,
+        absorbance_calc=spectra @ concentrations,
+        residuals=residuals,
+        singular_values=singular_values,
+        q=q,
+        w=w,
+        error=float(np.linalg.norm(residuals)),
+        known_species=known_species,
+        known_spectrum_scales=known_scale_report,
+        fixed_initial_spectrum=fix_initial_spectrum,
+        fixed_final_spectrum=fix_final_spectrum,
+    )
+
+
 
 def fit_a_to_b_to_c_nnls(
     experiment: Experiment,
@@ -1434,6 +1546,110 @@ def fit_a_rev_b_to_c_direct(
     )
 
 
+def fit_a_rev_b_to_c_mcr_als(
+    experiment: Experiment,
+    c0: float = 1.0,
+    n_components: int = 3,
+    k_bounds: tuple[float, float] = (1e-8, 1e-1),
+    initial_spectrum_weight: float = 0.0,
+    known_spectra: np.ndarray | None = None,
+    known_species: tuple[str, ...] = (),
+    fix_initial_spectrum: bool = False,
+    fix_final_spectrum: bool = False,
+    kinetic_weight: float = 1.0,
+    max_iter: int = 200,
+    progress_callback: ProgressCallback | None = None,
+) -> FitResult:
+    """Fit A <-> B -> C with a soft kinetic MCR-ALS refinement."""
+    if kinetic_weight < 0:
+        raise ValueError("--mcr-kinetic-weight must be nonnegative")
+    if max_iter <= 0:
+        raise ValueError("--mcr-max-iter must be positive")
+    if n_components != 3:
+        raise ValueError(
+            "The A <-> B -> C MCR-ALS fit requires exactly 3 components."
+        )
+
+    seed = fit_a_rev_b_to_c_direct(
+        experiment,
+        c0=c0,
+        n_components=n_components,
+        k_bounds=k_bounds,
+        spectra_method="nnls",
+        initial_spectrum_weight=initial_spectrum_weight,
+        known_spectra=known_spectra,
+        known_species=known_species,
+        fix_initial_spectrum=fix_initial_spectrum,
+        fix_final_spectrum=fix_final_spectrum,
+        progress_callback=progress_callback,
+    )
+    known_for_mcr = np.full_like(seed.spectra, np.nan)
+    known_mask = np.zeros(n_components, dtype=bool)
+    if known_spectra is not None:
+        external_mask = np.all(np.isfinite(known_spectra), axis=0)
+        known_for_mcr[:, external_mask] = seed.spectra[:, external_mask]
+        known_mask |= external_mask
+    if fix_initial_spectrum:
+        known_for_mcr[:, 0] = seed.spectra[:, 0]
+        known_mask[0] = True
+    if fix_final_spectrum:
+        known_for_mcr[:, -1] = seed.spectra[:, -1]
+        known_mask[-1] = True
+
+    spectra, concentrations, _mcr_error, _iterations = mcr_als_decompose(
+        experiment.absorbance,
+        n_components=n_components,
+        initial_concentrations=seed.c,
+        known_spectra=known_for_mcr if np.any(known_mask) else None,
+        closure_total=c0,
+        kinetic_reference=seed.c,
+        kinetic_weight=kinetic_weight,
+        max_iter=max_iter,
+    )
+
+    parameter_names = ("k1", "k_1", "k2")
+
+    def concentration_projection_error(params: dict[str, float]) -> float:
+        trial = concentration_profile_a_rev_b_to_c(
+            experiment.t,
+            params["k1"],
+            params["k_1"],
+            params["k2"],
+            c0=c0,
+        )
+        return float(np.linalg.norm(concentrations - trial))
+
+    projected = optimize_kinetic_parameters(
+        concentration_projection_error,
+        parameter_names,
+        k_bounds,
+        parameter_bounds={name: k_bounds for name in parameter_names},
+        initial_parameters={name: seed.params[name] for name in parameter_names},
+        optimizer="powell",
+        max_starts=1,
+    )
+    residuals = experiment.absorbance - spectra @ concentrations
+    q, w, singular_values = factor_analysis(experiment.absorbance, n_components)
+    return FitResult(
+        method="mcr_als",
+        model="a_rev_b_to_c",
+        params={name: projected[name] for name in parameter_names},
+        species_labels=MODEL_SPECIES["a_rev_b_to_c"],
+        c=concentrations,
+        spectra=spectra,
+        absorbance_calc=spectra @ concentrations,
+        residuals=residuals,
+        singular_values=singular_values,
+        q=q,
+        w=w,
+        error=float(np.linalg.norm(residuals)),
+        known_species=known_species,
+        known_spectrum_scales=seed.known_spectrum_scales or {},
+        fixed_initial_spectrum=fix_initial_spectrum,
+        fixed_final_spectrum=fix_final_spectrum,
+    )
+
+
 
 def fit_a_rev_b_to_c_nnls(
     experiment: Experiment,
@@ -1475,11 +1691,17 @@ def fit_model(
     known_species: tuple[str, ...] = (),
     fix_initial_spectrum: bool = False,
     fix_final_spectrum: bool = False,
+    mcr_kinetic_weight: float = 1.0,
+    mcr_max_iter: int = 200,
     progress_callback: ProgressCallback | None = None,
 ) -> FitResult:
     """Fit the selected kinetic model."""
-    if method != "nnls":
-        raise ValueError("Only --fit-method nnls is supported")
+    if method not in {"nnls", "mcr_als"}:
+        raise ValueError("Unknown fit method")
+    if method == "mcr_als" and model not in {"a_to_b_to_c", "a_rev_b_to_c"}:
+        raise ValueError(
+            "MCR-ALS is currently supported only for A -> B -> C and A <-> B -> C"
+        )
     if initial_spectrum_weight < 0:
         raise ValueError("--initial-spectrum-weight must be nonnegative")
     if fix_initial_spectrum and initial_spectrum_weight > 0:
@@ -1575,6 +1797,21 @@ def fit_model(
             progress_callback=progress_callback,
         )
     if model == "a_rev_b_to_c":
+        if method == "mcr_als":
+            return fit_a_rev_b_to_c_mcr_als(
+                experiment,
+                c0=c0,
+                n_components=n_components,
+                k_bounds=k_bounds,
+                initial_spectrum_weight=initial_spectrum_weight,
+                known_spectra=known_spectra,
+                known_species=known_species,
+                fix_initial_spectrum=fix_initial_spectrum,
+                fix_final_spectrum=fix_final_spectrum,
+                kinetic_weight=mcr_kinetic_weight,
+                max_iter=mcr_max_iter,
+                progress_callback=progress_callback,
+            )
         return fit_a_rev_b_to_c_direct(
             experiment,
             c0=c0,
@@ -1589,6 +1826,21 @@ def fit_model(
             progress_callback=progress_callback,
         )
     if model == "a_to_b_to_c":
+        if method == "mcr_als":
+            return fit_a_to_b_to_c_mcr_als(
+                experiment,
+                c0=c0,
+                n_components=n_components,
+                k_bounds=k_bounds,
+                initial_spectrum_weight=initial_spectrum_weight,
+                known_spectra=known_spectra,
+                known_species=known_species,
+                fix_initial_spectrum=fix_initial_spectrum,
+                fix_final_spectrum=fix_final_spectrum,
+                kinetic_weight=mcr_kinetic_weight,
+                max_iter=mcr_max_iter,
+                progress_callback=progress_callback,
+            )
         return fit_a_to_b_to_c_direct(
             experiment,
             c0=c0,
@@ -1640,6 +1892,8 @@ def fit_model_with_auto_k_max(
     known_species: tuple[str, ...] = (),
     fix_initial_spectrum: bool = False,
     fix_final_spectrum: bool = False,
+    mcr_kinetic_weight: float = 1.0,
+    mcr_max_iter: int = 200,
     progress_callback: ProgressCallback | None = None,
 ) -> tuple[FitResult, tuple[float, float]]:
     """Fit a model, expanding the upper k bound when fitted constants hit it."""
@@ -1662,6 +1916,8 @@ def fit_model_with_auto_k_max(
         known_species=known_species,
         fix_initial_spectrum=fix_initial_spectrum,
             fix_final_spectrum=fix_final_spectrum,
+        mcr_kinetic_weight=mcr_kinetic_weight,
+        mcr_max_iter=mcr_max_iter,
         progress_callback=progress_callback,
     )
 
@@ -1696,6 +1952,8 @@ def fit_model_with_auto_k_max(
             known_species=known_species,
             fix_initial_spectrum=fix_initial_spectrum,
             fix_final_spectrum=fix_final_spectrum,
+            mcr_kinetic_weight=mcr_kinetic_weight,
+            mcr_max_iter=mcr_max_iter,
             progress_callback=progress_callback,
         )
 
