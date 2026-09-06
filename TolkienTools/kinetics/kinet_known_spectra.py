@@ -117,21 +117,34 @@ def build_known_spectra_matrix(
         return None, ()
 
     species_to_column = {label: index for index, label in enumerate(model_species)}
+    # Known-spectrum files and CLI specifications use the compact A/B/C
+    # notation.  Special mechanisms expose chemically descriptive species
+    # names, so retain A/B/C as positional aliases for those columns.
+    positional_aliases = {
+        alias: index
+        for index, alias in enumerate(("A", "B", "C")[: len(model_species)])
+    }
     known = np.full((wavelength.size, len(model_species)), np.nan, dtype=float)
     known_labels: list[str] = []
 
     for spec in specs:
         file_wavelength, file_spectra = read_known_spectrum_file(spec.path)
         for label in spec.species:
-            if label not in species_to_column:
+            if label in species_to_column:
+                column = species_to_column[label]
+                model_label = label
+            elif label in positional_aliases:
+                column = positional_aliases[label]
+                model_label = model_species[column]
+            else:
                 raise ValueError(
                     f"Species {label} is not part of the selected model "
                     f"({', '.join(model_species)})"
                 )
             if label not in file_spectra:
                 raise ValueError(f"{spec.path}: species {label} was not found in the header")
-            if label in known_labels:
-                raise ValueError(f"Species {label} was provided more than once")
+            if model_label in known_labels:
+                raise ValueError(f"Species {model_label} was provided more than once")
             if wavelength[0] < file_wavelength[0] or wavelength[-1] > file_wavelength[-1]:
                 raise ValueError(
                     f"{spec.path}: wavelength range {file_wavelength[0]:g}-"
@@ -139,8 +152,7 @@ def build_known_spectra_matrix(
                     f"{wavelength[0]:g}-{wavelength[-1]:g}"
                 )
 
-            column = species_to_column[label]
             known[:, column] = np.interp(wavelength, file_wavelength, file_spectra[label])
-            known_labels.append(label)
+            known_labels.append(model_label)
 
     return known, tuple(known_labels)

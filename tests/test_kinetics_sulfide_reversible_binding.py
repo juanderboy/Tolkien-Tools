@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -16,9 +17,29 @@ from kinet_fitting import fit_mbfe3_sulfide_binding_autocatalytic  # noqa: E402
 from kinet_models import (  # noqa: E402
     concentration_profile_mbfe3_sulfide_binding_autocatalytic,
 )
+from kinet_known_spectra import (  # noqa: E402
+    KnownSpectrumSpec,
+    build_known_spectra_matrix,
+)
 
 
 class SulfideReversibleBindingTests(unittest.TestCase):
+    def test_known_spectrum_b_alias_maps_to_chemical_intermediate(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "B.dat"
+            path.write_text("# wavelength B\n400 10\n500 20\n", encoding="utf-8")
+            known, labels = build_known_spectra_matrix(
+                [KnownSpectrumSpec(species=("B",), path=path)],
+                ("MbFeIII", "MbFeIII-HS", "MbFeII"),
+                np.array([400.0, 450.0, 500.0]),
+            )
+
+        self.assertEqual(labels, ("MbFeIII-HS",))
+        assert known is not None
+        np.testing.assert_allclose(known[:, 1], [10.0, 15.0, 20.0])
+        self.assertTrue(np.all(np.isnan(known[:, 0])))
+        self.assertTrue(np.all(np.isnan(known[:, 2])))
+
     def test_interactive_menu_offers_both_endpoint_spectra(self) -> None:
         self.assertEqual(
             endpoint_spectrum_menu_labels(
