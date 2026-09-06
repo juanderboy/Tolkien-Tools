@@ -698,7 +698,9 @@ def preprocess_experiment(
         if initial_spectrum_index in drop_indices:
             raise ValueError("--initial-spectrum-index refers to a dropped spectrum")
         if initial_spectrum_label is None:
-            raise ValueError("An initial spectrum index requires an A-B-C model")
+            raise ValueError(
+                "An initial spectrum index requires a model with initial-spectrum selection"
+            )
         fix_initial_spectrum = False
 
     baseline_region = None

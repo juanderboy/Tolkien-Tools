@@ -845,7 +845,7 @@ def fit_mbfe3_sulfide_binding_autocatalytic(
         )
 
     parameter_names, parameter_bounds = direct_parameter_names_and_bounds(
-        ("k_on", "k_slow", "k_auto"),
+        ("k_on", "k_off", "k_slow", "k_cat"),
         known_species,
         k_bounds,
     )
@@ -854,8 +854,9 @@ def fit_mbfe3_sulfide_binding_autocatalytic(
         c_trial = concentration_profile_mbfe3_sulfide_binding_autocatalytic(
             experiment.t,
             params["k_on"],
+            params["k_off"],
             params["k_slow"],
-            params["k_auto"],
+            params["k_cat"],
             c0=c0,
         )
         return direct_spectral_error_for_concentrations(
@@ -880,13 +881,14 @@ def fit_mbfe3_sulfide_binding_autocatalytic(
         parameter_bounds=parameter_bounds,
         initial_parameters={
             "k_on": 7e-1,
+            "k_off": 1e-2,
             "k_slow": 5e-4,
-            "k_auto": 2e-5,
+            "k_cat": 2e-5,
         },
         progress_callback=progress_callback,
         optimizer="powell",
-        # In log space Powell reliably explores all three kinetic dimensions
-        # from the bounds' midpoint. The generic seven-start search repeats
+        # In log space Powell explores all four kinetic dimensions from the
+        # supplied starting point. The generic multistart search repeats
         # essentially the same fit for this model at substantial cost.
         max_starts=1,
     )
@@ -899,8 +901,9 @@ def fit_mbfe3_sulfide_binding_autocatalytic(
     c = concentration_profile_mbfe3_sulfide_binding_autocatalytic(
         experiment.t,
         params["k_on"],
+        params["k_off"],
         params["k_slow"],
-        params["k_auto"],
+        params["k_cat"],
         c0=c0,
     )
     spectra = fit_direct_spectra(
@@ -929,7 +932,10 @@ def fit_mbfe3_sulfide_binding_autocatalytic(
     return FitResult(
         method=method,
         model="mbfe3_sulfide_binding_autocatalytic",
-        params={name: params[name] for name in ("k_on", "k_slow", "k_auto")},
+        params={
+            name: params[name]
+            for name in ("k_on", "k_off", "k_slow", "k_cat")
+        },
         species_labels=MODEL_SPECIES["mbfe3_sulfide_binding_autocatalytic"],
         c=c,
         spectra=spectra,

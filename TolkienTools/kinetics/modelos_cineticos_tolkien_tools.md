@@ -1,7 +1,7 @@
 ---
 title: "Modelos cineticos de TOLKinetics"
 subtitle: "Rutina multilambda de tolkien-tools"
-date: "2026-07-20"
+date: "2026-09-06"
 geometry: margin=2.4cm
 fontsize: 11pt
 ---
@@ -9,7 +9,7 @@ fontsize: 11pt
 Documento de referencia para la rutina de cineticas multilambda de
 `tolkien-tools`.
 
-Fecha: 2026-07-20
+Fecha: 2026-09-06
 
 # Objetivo general de la rutina
 
@@ -242,7 +242,9 @@ externos. En ese caso, la forma espectral queda impuesta por el usuario y la
 rutina ajusta la escala compatible con el modelo cinetico.
 
 Tambien se puede fijar el primer espectro experimental como espectro del
-reactivo, o el ultimo como espectro del producto. Esto es util cuando esos
+reactivo, o el ultimo como espectro del producto. En el modelo especial de
+HS- con binding reversible, el menu ofrece ambas decisiones por separado.
+Esto es util cuando esos
 espectros son representativos de especies puras y se quiere evitar que la rutina
 los modifique durante la recuperacion espectral.
 
@@ -792,7 +794,7 @@ primer espectro medido posterior. El panel diagnostico muestra tambien 428 y
 434 nm para verificar la formacion del producto coordinado. El valor propuesto
 puede corregirse manualmente antes de ajustar.
 
-## Reducción de MbFeIII por HS- con binding inicial
+## Reducción de MbFeIII por HS- con binding reversible
 
 Este modelo agrega una etapa inicial de coordinacion por sulfuro. Es apropiado
 cuando el experimento empieza con mioglobina ferrica libre y la formacion del
@@ -802,7 +804,7 @@ la misma aceleracion autocatalitica fenomenologica del modelo anterior.
 
 $$
 \mathrm{MbFeIII}+\mathrm{HS^-}
-\longrightarrow
+\rightleftharpoons
 \mathrm{MbFeIII\!-\!HS}
 \longrightarrow
 \mathrm{MbFeII}
@@ -819,12 +821,14 @@ Las ecuaciones diferenciales son:
 $$
 \begin{aligned}
 \frac{d[\mathrm{MbFeIII}]}{dt}
-&=-k_{\mathrm{on}}[\mathrm{MbFeIII}],\\
+&=-k_{\mathrm{on}}[\mathrm{MbFeIII}]
++k_{\mathrm{off}}[\mathrm{MbFeIII\!-\!HS}],\\
 \frac{d[\mathrm{MbFeIII\!-\!HS}]}{dt}
 &=k_{\mathrm{on}}[\mathrm{MbFeIII}]
--(k_{\mathrm{slow}}+k_{\mathrm{auto}}x)[\mathrm{MbFeIII\!-\!HS}],\\
+-(k_{\mathrm{off}}+k_{\mathrm{slow}}+k_{\mathrm{cat}}x)
+[\mathrm{MbFeIII\!-\!HS}],\\
 \frac{d[\mathrm{MbFeII}]}{dt}
-&=(k_{\mathrm{slow}}+k_{\mathrm{auto}}x)[\mathrm{MbFeIII\!-\!HS}]
+&=(k_{\mathrm{slow}}+k_{\mathrm{cat}}x)[\mathrm{MbFeIII\!-\!HS}]
 \end{aligned}
 $$
 
@@ -833,11 +837,18 @@ $[\mathrm{MbFeIII}](0)=c_0$,
 $[\mathrm{MbFeIII\!-\!HS}](0)=0$ y
 $[\mathrm{MbFeII}](0)=0$. Las especies absorbentes visibles son
 $\mathrm{MbFeIII}$, $\mathrm{MbFeIII\!-\!HS}$ y $\mathrm{MbFeII}$. Las
-constantes ajustadas son $k_{\mathrm{on}}$, $k_{\mathrm{slow}}$ y
-$k_{\mathrm{auto}}$. En un experimento individual, $k_{\mathrm{on}}$ se trata
+constantes ajustadas son $k_{\mathrm{on}}$, $k_{\mathrm{off}}$,
+$k_{\mathrm{slow}}$ y $k_{\mathrm{cat}}$. En un experimento individual,
+$k_{\mathrm{on}}$ se trata
 como constante aparente pseudo-primer orden; para estimar una constante
 bimolecular habria que dividir por la concentracion efectiva de $\mathrm{HS^-}$,
-si se conoce y se mantiene en exceso.
+si se conoce y se mantiene en exceso. $k_{\mathrm{off}}$ es una constante de
+primer orden para la disociacion del complejo coordinado.
+
+En el menu interactivo, el primer espectro retenido puede fijarse como
+$\mathrm{MbFeIII}$ y el ultimo como $\mathrm{MbFeII}$ mediante decisiones
+independientes. El espectro intermedio de $\mathrm{MbFeIII\!-\!HS}$ se recupera
+por NNLS, salvo que se proporcione como espectro conocido.
 
 Este modelo se integra numericamente porque el termino autocatalitico acopla la
 velocidad de reduccion con la fraccion reducida $x$. La integracion se realiza

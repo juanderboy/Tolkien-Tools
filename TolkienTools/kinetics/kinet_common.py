@@ -20,7 +20,7 @@ SPECIAL_MODEL_LABELS = {
     ),
     "mbfe3_sulfide_autocatalytic": "reduccion autocatalitica de MbFe(III) por sulfuros",
     "mbfe3_sulfide_binding_autocatalytic": (
-        "reduccion autocatalitica de MbFe(III) por sulfuros con binding inicial"
+        "reduccion autocatalitica de MbFe(III) por sulfuros con binding reversible"
     ),
     "mbfe3_sulfide_hss_transsulfuration": (
         "reduccion de MbFe(III)-HS por HSS- agregado con transsulfuracion"
@@ -60,8 +60,10 @@ PARAMETER_LABELS = {
     "k_1": "k-1",
     "k2": "k2",
     "k_on": "k_on",
+    "k_off": "k_off",
     "k_slow": "k_slow,obs",
     "k_auto": "k_auto",
+    "k_cat": "k_cat",
     "k_ts": "k_ts",
     "k_fast": "k_fast",
 }
@@ -151,25 +153,29 @@ MODEL_PRESENTATIONS = {
     },
     "mbfe3_sulfide_binding_autocatalytic": {
         "scheme": (
-            "MbFeIII + HS- -> MbFeIII-HS -> MbFeII, "
+            "MbFeIII + HS- <-> MbFeIII-HS -> MbFeII, "
             "con aceleracion autocatalitica aparente"
         ),
         "profiles": (
-            "d[MbFeIII]/dt = -k_on * [MbFeIII]",
+            (
+                "d[MbFeIII]/dt = -k_on*[MbFeIII] "
+                "+ k_off*[MbFeIII-HS]"
+            ),
             "x(t) = [MbFeII](t) / [Mb]total",
             (
                 "d[MbFeIII-HS]/dt = k_on*[MbFeIII] "
-                "- (k_slow + k_auto*x)*[MbFeIII-HS]"
+                "- (k_off + k_slow + k_cat*x)*[MbFeIII-HS]"
             ),
-            "d[MbFeII]/dt = (k_slow + k_auto*x)*[MbFeIII-HS]",
+            "d[MbFeII]/dt = (k_slow + k_cat*x)*[MbFeIII-HS]",
         ),
         "parameters": (
             (
                 "k_on: constante aparente de coordinacion por HS- "
                 "bajo las condiciones del experimento"
             ),
+            "k_off: constante de disociacion de MbFeIII-HS",
             "k_slow,obs: constante aparente de reduccion lenta del complejo MbFeIII-HS",
-            "k_auto: aceleracion fenomenologica aparente",
+            "k_cat: aceleracion autocatalitica fenomenologica aparente",
         ),
         "notes": (
             "El ajuste usa tres especies absorbentes: MbFeIII, MbFeIII-HS y MbFeII.",
@@ -178,7 +184,7 @@ MODEL_PRESENTATIONS = {
                 "bimolecular multiplicado por [HS-]."
             ),
             "x actua como proxy de especies reactivas de azufre no observadas.",
-            "k_auto no debe interpretarse directamente como k_Red(HSS-).",
+            "k_cat no debe interpretarse directamente como k_Red(HSS-).",
         ),
     },
     "mbfe3_sulfide_hss_transsulfuration": {

@@ -68,11 +68,11 @@ un sistema quimico. Actualmente contiene:
   La dependencia de `k_slow,obs` con `[HS-]` se debe determinar
   experimentalmente antes de asignarle una interpretacion mecanistica.
 
-- `reduccion autocatalitica de MbFe(III) por sulfuros con binding inicial`:
-  agrega el paso `MbFeIII + HS- -> MbFeIII-HS` antes de la reduccion. Ajusta
-  tres espectros absorbentes (`MbFeIII`, `MbFeIII-HS`, `MbFeII`) y tres
-  constantes (`k_on`, `k_slow,obs`, `k_auto`). En un experimento individual,
-  `k_on` se trata como constante aparente pseudo-primer orden; para estimar un
+- `reduccion autocatalitica de MbFe(III) por sulfuros con binding reversible`:
+  agrega el paso `MbFeIII + HS- <-> MbFeIII-HS` antes de la reduccion. Ajusta
+  tres espectros absorbentes (`MbFeIII`, `MbFeIII-HS`, `MbFeII`) y cuatro
+  constantes (`k_on`, `k_off`, `k_slow,obs`, `k_cat`). En un experimento
+  individual, `k_on` se trata como constante aparente pseudo-primer orden; para estimar un
   `k_on` bimolecular hay que considerar la concentracion efectiva de `HS-`.
 
 - `reduccion de MbFe(III) por HSS- sin binding en la ventana ajustada`: usa el
@@ -134,25 +134,30 @@ reemplazarse manualmente.
 Este modelo agrega el proceso inicial de coordinacion:
 
 ```text
-MbFeIII + HS- -> MbFeIII-HS -> MbFeII
+MbFeIII + HS- <-> MbFeIII-HS -> MbFeII
 ```
 
 Las especies absorbentes ajustadas son `MbFeIII`, `MbFeIII-HS` y `MbFeII`.
-Las constantes ajustadas son `k_on`, `k_slow,obs` y `k_auto`.
+Las constantes ajustadas son `k_on`, `k_off`, `k_slow,obs` y `k_cat`.
 
 Para un unico experimento, `k_on` se modela como constante aparente
 pseudo-primer orden:
 
 ```text
-d[MbFeIII]/dt    = -k_on * [MbFeIII]
+d[MbFeIII]/dt    = -k_on*[MbFeIII] + k_off*[MbFeIII-HS]
 x                = [MbFeII] / [Mb]total
-d[MbFeIII-HS]/dt = k_on*[MbFeIII] - (k_slow + k_auto*x)*[MbFeIII-HS]
-d[MbFeII]/dt     = (k_slow + k_auto*x)*[MbFeIII-HS]
+d[MbFeIII-HS]/dt = k_on*[MbFeIII] - (k_off + k_slow + k_cat*x)*[MbFeIII-HS]
+d[MbFeII]/dt     = (k_slow + k_cat*x)*[MbFeIII-HS]
 ```
 
 Si `[HS-]` esta en exceso y se conoce su concentracion efectiva, el `k_on`
 bimolecular se debe estimar fuera del ajuste dividiendo la constante aparente
 por `[HS-]`.
+
+`k_off` es una constante de primer orden. En el flujo interactivo se ofrecen
+por separado las opciones de fijar el primer espectro retenido como
+`MbFeIII` y el ultimo como `MbFeII`. El espectro de `MbFeIII-HS` queda libre,
+salvo que se provea como espectro conocido.
 
 Este sistema se resuelve con `scipy.integrate.solve_ivp`. `solve_ivp` es un
 integrador numerico de ecuaciones diferenciales ordinarias: el codigo define
@@ -164,8 +169,8 @@ solucion analitica cerrada seria mas dificil de mantener y mas propensa a
 errores.
 
 La ventaja practica de `solve_ivp` es que el codigo sigue de cerca el mecanismo
-quimico: tasas de binding, reduccion y acumulacion de producto. Tambien facilita
-extender el modelo mas adelante, por ejemplo para agregar binding reversible,
+quimico: tasas de asociacion, disociacion, reduccion y acumulacion de producto.
+Tambien facilita extender el modelo mas adelante, por ejemplo para agregar
 dependencia explicita de `[HS-]`, consumo de sulfuro u otros intermediarios. La
 desventaja es que cada prueba de parametros durante el ajuste requiere integrar
 el sistema, por lo que es mas costoso que una formula analitica. Para tres

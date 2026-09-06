@@ -194,6 +194,29 @@ def apply_model_default_wavelength_range(
         args.lambda_max = default_max
 
 
+def endpoint_spectrum_menu_labels(
+    model: str,
+    interactive: bool,
+    initial_spectrum_index: int | None,
+) -> tuple[str | None, str | None]:
+    """Return species labels exposed by the endpoint-spectrum dialog."""
+    first_species = MODEL_SPECIES[model][0]
+    last_species = MODEL_SPECIES[model][-1]
+    initial_models = {
+        "a_to_b_to_c",
+        "a_rev_b_to_c",
+        "mbfe3_sulfide_binding_autocatalytic",
+    }
+    initial_label = (
+        first_species
+        if model in initial_models
+        and (interactive or initial_spectrum_index is not None)
+        else None
+    )
+    final_label = last_species if interactive else None
+    return initial_label, final_label
+
+
 def parse_known_spectrum_specs(texts: list[str]) -> list[KnownSpectrumSpec]:
     """Parse all known-spectrum CLI specifications."""
     return [parse_known_spectrum_spec(text) for text in texts]
@@ -636,7 +659,8 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=0.0,
         help=(
-            "Softly pull species A toward the first measured spectrum in NNLS. "
+            "Softly pull the first model species toward the first measured "
+            "spectrum in NNLS. "
             "0 disables it; 1 is roughly one extra time point."
         ),
     )
@@ -819,6 +843,12 @@ def main() -> None:
             f"({last_species}); no se puede fijar tambien desde el ultimo espectro experimental."
         )
 
+    initial_spectrum_label, final_spectrum_label = endpoint_spectrum_menu_labels(
+        model,
+        interactive,
+        args.initial_spectrum_index,
+    )
+
     (
         corrected,
         work_range,
@@ -833,15 +863,10 @@ def main() -> None:
         args,
         experiment,
         allowed_work_range=allowed_work_range,
-        initial_spectrum_label=(
-            first_species
-            if model in {"a_to_b_to_c", "a_rev_b_to_c"}
-            and (interactive or args.initial_spectrum_index is not None)
-            else None
-        ),
+        initial_spectrum_label=initial_spectrum_label,
         default_fix_initial_spectrum=fix_initial_spectrum,
         initial_spectrum_unavailable_reason=initial_spectrum_unavailable_reason,
-        final_spectrum_label=last_species if interactive else None,
+        final_spectrum_label=final_spectrum_label,
         default_fix_final_spectrum=fix_final_spectrum,
         final_spectrum_unavailable_reason=final_spectrum_unavailable_reason,
         overview_auto_region=overview_auto_region,
@@ -857,17 +882,17 @@ def main() -> None:
         cropped.wavelength,
     )
     if initial_reference_spectrum is not None:
-        if "A" in known_species:
-            raise ValueError("An initial reference spectrum for A was provided twice")
+        if first_species in known_species:
+            raise ValueError(
+                f"An initial reference spectrum for {first_species} was provided twice"
+            )
         if known_spectra is None:
             known_spectra = np.full(
                 (cropped.wavelength.size, len(MODEL_SPECIES[model])),
                 np.nan,
             )
-        if "A" not in MODEL_SPECIES[model]:
-            raise ValueError("Initial reference spectrum is only supported for A-B-C models")
-        known_spectra[:, MODEL_SPECIES[model].index("A")] = initial_reference_spectrum
-        known_species = (*known_species, "A")
+        known_spectra[:, 0] = initial_reference_spectrum
+        known_species = (*known_species, first_species)
     print_known_spectra_report(known_species, model)
     print_initial_spectrum_report(fix_initial_spectrum, model)
     print_initial_reference_report(initial_spectrum_index, experiment)

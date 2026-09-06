@@ -46,20 +46,22 @@ def concentration_profile_mbfe3_sulfide_autocatalytic(
 def concentration_profile_mbfe3_sulfide_binding_autocatalytic(
     t: np.ndarray,
     k_on: float,
+    k_off: float,
     k_slow: float,
-    k_auto: float,
+    k_cat: float,
     c0: float = 1.0,
 ) -> np.ndarray:
     """Profiles for MbFeIII binding HS- before autocatalytic reduction.
 
-    The first step is treated as pseudo-first order for a single experiment:
+    Association is treated as pseudo-first order for a single experiment,
+    while dissociation is first order:
 
-        MbFeIII -> MbFeIII-HS
+        MbFeIII <-> MbFeIII-HS
 
     The coordinated complex then reduces to MbFeII with the same apparent
     autocatalytic term used by the two-species sulfide model.
     """
-    if k_on <= 0 or k_slow <= 0 or k_auto <= 0:
+    if k_on <= 0 or k_off <= 0 or k_slow <= 0 or k_cat <= 0:
         raise ValueError("All kinetic constants must be positive")
     if c0 <= 0:
         raise ValueError("c0 must be positive")
@@ -78,10 +80,11 @@ def concentration_profile_mbfe3_sulfide_binding_autocatalytic(
         mbfe3, complexed, reduced = y
         reduced_fraction = np.clip(reduced / c0, 0.0, 1.0)
         binding_rate = k_on * mbfe3
-        reduction_rate = (k_slow + k_auto * reduced_fraction) * complexed
+        dissociation_rate = k_off * complexed
+        reduction_rate = (k_slow + k_cat * reduced_fraction) * complexed
         return (
-            -binding_rate,
-            binding_rate - reduction_rate,
+            -binding_rate + dissociation_rate,
+            binding_rate - dissociation_rate - reduction_rate,
             reduction_rate,
         )
 
