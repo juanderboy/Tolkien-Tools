@@ -454,7 +454,8 @@ def ask_post_fit_spectra_to_drop(experiment: Experiment) -> list[int] | None:
 def build_parser() -> argparse.ArgumentParser:
     """Command-line options."""
     parser = argparse.ArgumentParser(
-        description="Fit multiwavelength spectrophotometric kinetic data."
+        description="Fit multiwavelength spectrophotometric kinetic data.",
+        epilog="Joint temperature/pH analysis: tolkien-tools kinetics activation --help"
     )
     parser.add_argument("input", nargs="?", default="117.txt", help="Input text file")
     parser.add_argument(
@@ -703,6 +704,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     """Load data, preprocess, fit the kinetic model and report results."""
+    if len(sys.argv) > 1 and sys.argv[1] == "activation":
+        from kinet_activation import main as activation_main
+        activation_main(sys.argv[2:])
+        return
     args = build_parser().parse_args()
 
     if args.global_manifest is not None:

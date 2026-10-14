@@ -217,6 +217,12 @@ def prompt_extra_args(tool: Tool) -> list[str]:
     args = list(tool.default_args)
 
     if tool.ask_input_file:
+        print("Analisis cinetico: 1. Espectros multilambda; 2. Analisis especial: activacion conjunta T/pH")
+        choice = input("Elegir analisis? Enter = 1: ").strip()
+        if choice == "2":
+            return ["activation", "--interactive"]
+        if choice not in {"", "1"}:
+            raise ValueError("Elegir 1 o 2.")
         text = input(
             "Archivo de entrada para la cinetica? "
             "Enter = usar el default de la rutina en la carpeta actual: "

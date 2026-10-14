@@ -399,3 +399,19 @@ proyeccion del resultado MCR sobre el mecanismo elegido. Para experimentos con
 tiempo de induccion conocido, conviene fijar A desde un archivo de espectro
 obtenido del plateau previo, en vez de usar `--fix-initial-spectrum` sobre el
 primer espectro posterior a la inyeccion.
+
+## Analisis especial de activacion y equilibrio acido-base
+
+Ajusta una tabla de constantes cineticas a distintas temperaturas y pHs mediante
+un modelo de dos formas en equilibrio rapido. Disponible desde la opcion 4 del
+menu principal, eligiendo analisis especial de activacion conjunta T/pH, o con:
+
+```bash
+tolkien-tools kinetics activation mediciones.csv --output results_activation
+tolkien-tools kinetics activation --interactive
+```
+
+Entrada CSV/TSV con encabezados `T_K,pH,k`, temperatura absoluta en kelvin,
+pH adimensional y constantes positivas en s^-1, usando punto decimal.
+Opcionales: `id` y `sigma_log_k`. Ver el [manual tecnico](activacion_acido_base.md)
+para ecuaciones, entrada manual, controles, archivos de salida y limitaciones.
