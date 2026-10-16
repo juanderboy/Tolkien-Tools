@@ -78,6 +78,74 @@ def evaluate(parameters, temperature, ph, reference=298.15):
     return logk, jac, alpha, flux
 
 
+def estimate_uncertainty(p, jacobian, residuals, ids, reference, absolute_sigma=False):
+    """Local least-squares covariance; retain all cross terms for derived values."""
+    dof = len(residuals) - len(ids)
+    near_bound = np.any(np.minimum(p[ids]-LOW[ids], HIGH[ids]-p[ids]) < 1e-5)
+    available = dof > 0 and np.linalg.matrix_rank(jacobian) == len(ids) and not near_bound
+    result = dict(available=bool(available), degrees_of_freedom=dof,
+                  method='local linearized least-squares covariance',
+                  scale='absolute supplied sigma_log_k' if absolute_sigma else 'SSE / degrees_of_freedom',
+                  standard_errors={name: None for name in NAMES}, derived_standard_errors={},
+                  covariance=None)
+    if not available:
+        result['reason'] = 'Insufficient rank/degrees of freedom or a parameter near a numerical bound.'
+        return result
+    _, singular, vh = np.linalg.svd(jacobian, full_matrices=False)
+    scale = 1.0 if absolute_sigma else float(residuals @ residuals / dof)
+    free_cov = (vh.T / singular**2) @ vh * scale
+    cov = np.zeros((6, 6))
+    cov[np.ix_(ids, ids)] = free_cov
+    result['covariance'] = cov.tolist()
+    for i in ids:
+        result['standard_errors'][NAMES[i]] = float(np.sqrt(max(0., cov[i, i])))
+    for i, species in enumerate(('HA', 'A')):
+        gradient = np.zeros(6)
+        gradient[i] = 1000*R
+        gradient[i+2] = 1000/reference
+        result['derived_standard_errors'][f'S_{species}_J_mol_K'] = float(np.sqrt(max(0., gradient @ cov @ gradient)))
+        result['derived_standard_errors'][f'k_{species}_ref'] = float(np.exp(p[i])*np.sqrt(max(0., cov[i, i])))
+    return result
+
+
+def format_summary(result):
+    """Readable report shared by the terminal and summary.txt."""
+    p = result['parameters']
+    uncertainty = result['uncertainty']
+    se = uncertainty['standard_errors']
+    derived = uncertainty['derived_standard_errors']
+    def line(label, value, error, unit='', fixed=False):
+        if fixed:
+            value_text = f'{value:.6g} (fixed)'
+        elif error is None:
+            value_text = f'{value:.6g}  +/- unavailable'
+        else:
+            value_text = f'{value:.6g}  +/- {error:.3g}'
+        return f'  {label:<22} {value_text:<31} {unit}'.rstrip()
+    lines = ['','ACTIVATION AND ACID-BASE EQUILIBRIUM', '='*68,
+             f"Reference temperature: {result['configuration']['reference_K']:.6g} K",
+             f"Measurements: {len(result['predictions'])} | Free parameters: {6 if result['configuration']['fixed_pka'] is None else 5} | Residual degrees of freedom: {uncertainty['degrees_of_freedom']}",
+             'HA = protonated form; A = deprotonated form', '', 'Intrinsic activation parameters']
+    for i, species in enumerate(('HA', 'A')):
+        lines += [line(f'dH_act ({species})', p[NAMES[i+2]], se[NAMES[i+2]], 'kJ/mol'),
+                  line(f'dS_act ({species})', result[f'S_{species}_J_mol_K'], derived.get(f'S_{species}_J_mol_K'), 'J/mol/K'),
+                  line(f'k ({species}, Tref)', result[f'k_{species}_ref'], derived.get(f'k_{species}_ref'), 's^-1')]
+    lines += ['', 'Acid-base equilibrium',
+              line('pKa (Tref)', p['pKa_ref'], se['pKa_ref'], fixed=result['configuration']['fixed_pka'] is not None),
+              line('dH (deprotonation)', p['H_acidity_kJ_mol'], se['H_acidity_kJ_mol'], 'kJ/mol'),
+              '', 'Fit quality', f"  RMS log residual:      {result['RMS_log']:.6g}",
+              f"  Residual objective:    {result['objective']:.6g}",
+              f"  Converged starts:      {result['converged_starts']}", '',
+              '+/- denotes one standard error (SE), not a 95% confidence interval.',
+              f"Covariance scaling: {uncertainty['scale']}.",
+              'SE values are conditional on the model and input data; entropy SE',
+              'includes covariance between intrinsic enthalpy and log rate.']
+    if not uncertainty['available']:
+        lines.append('SE unavailable: '+uncertainty['reason'])
+    lines += ['Note: '+warning for warning in result['warnings']]
+    return '\n'.join(lines)+'\n'
+
+
 def fit_records(records, reference=298.15, fixed_pka=None, starts=50, seed=0):
     validate_records(records)
     if not np.isfinite(reference) or reference <= 0 or starts < 1:
@@ -138,7 +206,9 @@ def fit_records(records, reference=298.15, fixed_pka=None, starts=50, seed=0):
             log_residual=float(logk[i]-observed[i]), alpha_A=float(alpha[i]), flux_A=float(flux[i]),
             pKa_T=float(p[5]+p[4]*(1/t[i]-1/reference)/(R*LN10)),
             H_apparent_local_kJ_mol=float((1-flux[i])*p[2]+flux[i]*p[3]+(flux[i]-alpha[i])*p[4])))
-    return dict(parameters=dict(zip(NAMES, p.tolist())),
+    uncertainty = estimate_uncertainty(p, j[:, ids]/sigma[:, None],
+        (logk-observed)/sigma, ids, reference, records[0].get('sigma_log_k') is not None)
+    return dict(uncertainty=uncertainty, parameters=dict(zip(NAMES, p.tolist())),
         k_HA_ref=float(np.exp(p[0])), k_A_ref=float(np.exp(p[1])),
         S_HA_J_mol_K=float(entropy[0]), S_A_J_mol_K=float(entropy[1]),
         objective=best['objective'], RMS_log=float(np.sqrt(np.mean((logk-observed)**2))),
@@ -167,10 +237,7 @@ def export_result(result, output, plot=True):
     write_table(output/'predictions.tsv', result['predictions'])
     (output/'multistart.json').write_text(json.dumps(result['multistart'], indent=2)+'\n')
     (output/'result.json').write_text(json.dumps(result, indent=2, allow_nan=False)+'\n')
-    lines = ['Joint acid-base activation analysis', json.dumps(result['parameters'], indent=2),
-        f"Intrinsic activation entropies (J/mol/K): HA={result['S_HA_J_mol_K']:.8g}; A={result['S_A_J_mol_K']:.8g}",
-        f"RMS log residual: {result['RMS_log']:.8g}", *result['warnings']]
-    (output/'summary.txt').write_text('\n'.join(lines)+'\n')
+    (output/'summary.txt').write_text(format_summary(result), encoding='utf-8')
     if plot:
         import matplotlib
         matplotlib.use('Agg')
@@ -228,8 +295,9 @@ def main(argv=None):
     args = parser.parse_args(argv)
     try:
         if args.interactive:
-            source = input('Archivo CSV/TSV? Enter = ingresar mediciones a mano: ').strip()
-            args.table = source or None
+            if not args.table:
+                source = input('Archivo CSV/TSV? Enter = ingresar mediciones a mano: ').strip()
+                args.table = source or None
             pka = input('pKa fijo a Tref? Enter = ajustarlo libre: ').strip()
             args.fixed_pka = float(pka) if pka else None
             ref = input('Tref (K)? Enter = 298.15: ').strip()
@@ -245,9 +313,7 @@ def main(argv=None):
         output = args.output or str(Path(args.table).parent/f'results_activation_{Path(args.table).stem}')
         export_result(result, output, not args.no_plot)
         print('Resultados:', Path(output).resolve())
-        print('Parametros:', result['parameters'])
-        for warning in result['warnings']:
-            print('Nota:', warning)
+        print(format_summary(result))
     except (ValueError, OSError, RuntimeError) as exc:
         parser.error(str(exc))
 

@@ -404,7 +404,7 @@ primer espectro posterior a la inyeccion.
 
 Ajusta una tabla de constantes cineticas a distintas temperaturas y pHs mediante
 un modelo de dos formas en equilibrio rapido. Disponible desde la opcion 4 del
-menu principal, eligiendo analisis especial de activacion conjunta T/pH, o con:
+menu principal, luego Mecanismos y estudios especiales y Analisis termico de especiacion acido-base de disulfuros, o con:
 
 ```bash
 tolkien-tools kinetics activation mediciones.csv --output results_activation
@@ -415,3 +415,16 @@ Entrada CSV/TSV con encabezados `T_K,pH,k`, temperatura absoluta en kelvin,
 pH adimensional y constantes positivas en s^-1, usando punto decimal.
 Opcionales: `id` y `sigma_log_k`. Ver el [manual tecnico](activacion_acido_base.md)
 para ecuaciones, entrada manual, controles, archivos de salida y limitaciones.
+
+### Menu cinetico sin cargar datos
+
+La opcion 4 del lanzador abre directamente el menu principal de cinetica.
+Tambien se muestra con `tolkien-tools kinetics` o `tolkien-tools kinetics archivo.KD`.
+El primer menu ofrece A -> B irreversible, A -> B -> C irreversible,
+A <-> B -> C y Mecanismos y estudios especiales. Esta ultima opcion contiene
+los mecanismos de sulfuros con/sin binding, transulfuracion, sus ajustes globales
+y el Analisis termico de especiacion acido-base de disulfuros.
+El archivo se solicita al iniciar el analisis elegido; si ya se indico por terminal,
+se reutiliza. Las opciones de preprocesado dependientes de los datos se ofrecen
+tras cargarlos. `--no-plot`, `--skip-preprocess-dialog`, `--global-manifest` y el
+subcomando `activation` conservan el acceso directo para ejecuciones automaticas.

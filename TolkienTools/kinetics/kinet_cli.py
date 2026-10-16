@@ -457,7 +457,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="Fit multiwavelength spectrophotometric kinetic data.",
         epilog="Joint temperature/pH analysis: tolkien-tools kinetics activation --help"
     )
-    parser.add_argument("input", nargs="?", default="117.txt", help="Input text file")
+    parser.add_argument("input", nargs="?", default=None, help="Input text file (requested when starting an interactive analysis)")
     parser.add_argument(
         "--global-manifest",
         default=None,
@@ -702,6 +702,76 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 
+
+def special_study_choice() -> tuple[str, str | None] | None:
+    """Select a specific mechanism or study without requesting data."""
+    models = list(SPECIAL_MODEL_LABELS)
+    thermal_index = len(models) + 1
+    global_models = list(HSS_TRANSSULFURATION_MODELS)
+    while True:
+        print("\nMecanismos y estudios especiales")
+        for index, model in enumerate(models, 1):
+            print(f"  {index}. {SPECIAL_MODEL_LABELS[model]}")
+        print(f"  {thermal_index}. Analisis termico de especiacion acido-base de disulfuros")
+        for index, model in enumerate(global_models, thermal_index + 1):
+            print(f"  {index}. Ajuste global: {SPECIAL_MODEL_LABELS[model]}")
+        print("  0. Volver")
+        choice = input("Elegir mecanismo o estudio: ").strip().lower()
+        if choice in {"0", "q", "salir"}:
+            return None
+        if choice.isdigit():
+            index = int(choice)
+            if 1 <= index <= len(models):
+                return "spectra", models[index-1]
+            if index == thermal_index:
+                return "activation", None
+            if thermal_index < index <= thermal_index + len(global_models):
+                return "global", global_models[index-thermal_index-1]
+        print("Elegir una de las opciones indicadas.")
+
+
+def kinetics_menu(args: argparse.Namespace) -> bool:
+    """Choose a mechanism first; request its input only when ready to run."""
+    models = list(GENERAL_MODEL_LABELS)
+    while True:
+        print("\nMenu principal de cinetica")
+        for index, model in enumerate(models, 1):
+            print(f"  {index}. {GENERAL_MODEL_LABELS[model]}")
+        print("  4. Mecanismos y estudios especiales")
+        print("  0. Volver / salir")
+        choice = input("Elegir mecanismo o estudio: ").strip().lower()
+        if choice in {"0", "q", "salir"}:
+            return False
+        if choice in {"1", "2", "3"}:
+            kind, model = "spectra", models[int(choice)-1]
+        elif choice == "4":
+            selected = special_study_choice()
+            if selected is None:
+                continue
+            kind, model = selected
+        else:
+            print("Elegir una opcion de 0 a 4.")
+            continue
+        if kind == "activation":
+            from kinet_activation import main as activation_main
+            activation_main(([args.input] if args.input else []) + ["--interactive"])
+            return False
+        if kind == "global":
+            source = args.global_manifest or args.input
+            if not source:
+                source = input("Tabla de experimentos CSV/TSV (Enter = volver): ").strip()
+            if not source:
+                continue
+            args.global_manifest = source
+        elif not args.input:
+            source = input("Archivo de espectros TXT/DAT/KD (Enter = volver): ").strip()
+            if not source:
+                continue
+            args.input = source
+        args.model = model
+        return True
+
+
 def main() -> None:
     """Load data, preprocess, fit the kinetic model and report results."""
     if len(sys.argv) > 1 and sys.argv[1] == "activation":
@@ -709,6 +779,14 @@ def main() -> None:
         activation_main(sys.argv[2:])
         return
     args = build_parser().parse_args()
+
+    use_menu = (args.global_manifest is None
+                and not args.no_plot and not args.skip_preprocess_dialog)
+    print_startup_banner()
+    if use_menu and not kinetics_menu(args):
+        return
+    if args.input is None:
+        args.input = "117.txt"  # Preserve the legacy noninteractive default.
 
     if args.global_manifest is not None:
         if args.model not in HSS_TRANSSULFURATION_MODELS:
@@ -728,7 +806,6 @@ def main() -> None:
         run_global_from_args(args)
         return
 
-    print_startup_banner()
     source_input_path = Path(args.input)
     input_path = resolve_input_file(args)
     experiment = read_experiment(input_path)
@@ -747,7 +824,8 @@ def main() -> None:
             experiment,
             baseline_window=args.baseline_window,
         )
-        model = ask_model_choice(args.model)
+        if not use_menu:
+            model = ask_model_choice(args.model)
         print_model_presentation(model)
         if not known_specs:
             known_specs = ask_known_spectra_choice(model)

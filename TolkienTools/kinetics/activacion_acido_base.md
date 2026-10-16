@@ -14,8 +14,8 @@ tolkien-tools kinetics activation --interactive
 tolkien-tools kinetics activation --help
 ```
 
-Desde `tolkien-tools`, elegir 4 (cinéticas), después 2 (análisis especial de
-activación conjunta T/pH). Se puede indicar un archivo o introducir mediciones
+Desde `tolkien-tools`, elegir 4 (cinéticas), después 4 («Mecanismos y estudios especiales») y
+6 («Análisis térmico de especiación ácido–base de disulfuros»). Se puede indicar un archivo o introducir mediciones
 manualmente. Las preguntas permiten elegir pKa fijo o libre, temperatura de
 referencia y carpeta de salida. Para configurar semillas o cantidad de
 inicializaciones, usar las opciones de la línea de comandos.
@@ -128,7 +128,7 @@ su contribución térmica; la columna exportada sigue siendo la derivada a pH fi
 
 - `input.tsv`: mediciones efectivamente utilizadas, también para entrada manual.
 - `result.json`: parámetros, tasas y entropías intrínsecas, configuración,
-  versiones del entorno, hash SHA-256 del archivo fuente y diagnósticos.
+  versiones del entorno, hash SHA-256 del archivo fuente, covarianza y errores estándar.
 - `multistart.json`: inicializaciones, objetivos, parámetros y convergencia.
 - `predictions.tsv`: predicciones, residuos logarítmicos, pKa(T), poblaciones,
   contribución al flujo y entalpía aparente local para cada fila.
@@ -141,10 +141,19 @@ menú se propone `results_activation`. Una nueva ejecución en la misma carpeta
 reemplaza esos archivos: elegir carpetas distintas para preservar comparaciones.
 
 El RMS logarítmico no es incertidumbre de las entalpías. La estabilidad entre
-semillas tampoco constituye un intervalo de confianza. Esta versión no estima
-intervalos experimentales ni genera perfiles de parámetros automáticamente.
-Para cuantificar incertidumbres se necesita un modelo de error justificado y
-considerar el procesamiento previo, correlaciones y elección del modelo.
+semillas tampoco constituye un intervalo de confianza.
+El resumen en pantalla y `summary.txt` presentan cada magnitud con unidades y
+`+/-` un error estándar (SE), obtenido por covarianza local del Jacobiano.
+Sin `sigma_log_k`, se supone varianza común en ln(k), estimada como SSE/(n-p).
+Si se proporciona `sigma_log_k`, se interpreta como desviación estándar absoluta
+conocida de cada ln(k): no se reescala la covarianza por el residuo.
+Los SE de tasas y entropías se propagan con la covarianza completa.
+Un pKa fijado se marca `fixed`, sin asignarle error experimental cero.
+Con Jacobiano de rango insuficiente o parámetros en límites numéricos, los SE
+se indican como no disponibles. Son aproximaciones locales condicionadas al
+modelo; no intervalos del 95 %, ni incertidumbres experimentales totales.
+Esta versión no genera perfiles de confianza automáticamente. Se deben considerar
+el procesamiento previo, correlaciones y elección del modelo.
 Comparar pKa fijo/libre, inspeccionar residuos y revisar cobertura térmica y de
 pH antes de interpretar parámetros microscópicos. Un mínimo estable puede
 coexistir con correlaciones fuertes y amplias regiones de parámetros compatibles.
