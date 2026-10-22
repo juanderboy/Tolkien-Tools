@@ -223,7 +223,7 @@ def export_final_fit_outputs(
         show=False,
     )
 
-    print("Archivos exportados:")
+    print("Exported files:")
     print(f"  {concentration_path}")
     print(f"  {spectra_path}")
     print(f"  {summary_path}")

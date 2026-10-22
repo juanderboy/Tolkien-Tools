@@ -239,7 +239,7 @@ def resolve_metric_specs(specs: Sequence[MetricSpec], atom_lines: Sequence[str],
             resolved.append(resolve_heme_oop_spec(spec, atom_lines, coords))
         elif spec.kind == "heme_oop" and len(spec.atoms) == 5:
             proximal = resolve_manual_proximal_nitrogen(spec, atom_lines, coords)
-            print(f"[INFO] {spec.label}: NHis autodetectado como {proximal}; positivo hacia NHis.")
+            print(f"[INFO] {spec.label}: NHis auto-detected as {proximal}; positive toward NHis.")
             resolved.append(MetricSpec(label=spec.label, kind=spec.kind, atoms=(*spec.atoms, proximal)))
         else:
             resolved.append(spec)
@@ -278,7 +278,7 @@ def resolve_heme_oop_spec(spec: MetricSpec, atom_lines: Sequence[str], coords: S
     if fe_idx < 1 or fe_idx > len(coords):
         raise ValueError(f"{spec.label}: indice Fe fuera de rango")
     if symbols[fe_idx - 1] != "Fe":
-        print(f"[WARN] {spec.label}: el atomo {fe_idx} no parece Fe ({symbols[fe_idx - 1]}).")
+        print(f"[WARN] {spec.label}: atom {fe_idx} does not appear to be Fe ({symbols[fe_idx - 1]}).")
 
     n_candidates = [
         idx
@@ -294,14 +294,14 @@ def resolve_heme_oop_spec(spec: MetricSpec, atom_lines: Sequence[str], coords: S
     if spec.kind == "heme_oop":
         proximal = choose_proximal_nitrogen(coords, fe_idx, n_candidates, chosen)
         print(
-            f"[INFO] {spec.label}: heme_oop autodetectado con Fe={fe_idx}, "
-            f"N4={','.join(map(str, chosen))} y NHis={proximal}; positivo hacia NHis."
+            f"[INFO] {spec.label}: heme_oop auto-detected with Fe={fe_idx}, "
+            f"N4={','.join(map(str, chosen))} and NHis={proximal}; positive toward NHis."
         )
         return MetricSpec(label=spec.label, kind=spec.kind, atoms=(fe_idx, *chosen, proximal))
 
     print(
-        f"[INFO] {spec.label}: heme_oop_abs autodetectado con Fe={fe_idx} "
-        f"y N4={','.join(map(str, chosen))}"
+        f"[INFO] {spec.label}: heme_oop_abs auto-detected with Fe={fe_idx} "
+        f"and N4={','.join(map(str, chosen))}"
     )
     return MetricSpec(label=spec.label, kind=spec.kind, atoms=(fe_idx, *chosen))
 
@@ -444,11 +444,11 @@ def analyze_xyz(
     if make_plots:
         plot_outputs(rows, specs, output_prefix, scatter_pairs)
 
-    print(f"Archivo XYZ: {xyz_path}")
-    print(f"Atomos por frame: {natoms}")
+    print(f"XYZ file: {xyz_path}")
+    print(f"Atoms per frame: {natoms}")
     print(f"Frames: {nframes}")
-    print(f"CSV de metricas: {metrics_path}")
-    print(f"Resumen estadistico: {stats_path}")
+    print(f"Metrics CSV: {metrics_path}")
+    print(f"Statistical summary: {stats_path}")
     if scatter_stats_path:
         print(f"Correlaciones scatter: {scatter_stats_path}")
     if make_plots:

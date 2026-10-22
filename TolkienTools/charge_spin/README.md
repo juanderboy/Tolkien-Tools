@@ -1,113 +1,99 @@
-# Charge And Spin Analysis
+# Charge and Spin Analysis
 
-Rutina conectada actualmente:
-
-```text
-TolkienTools/charge_spin/charge_spin_analysis.py
-```
-
-Uso desde el menu maestro:
+Analyze Mulliken, CHELPG, Loewdin, Hirshfeld and spin populations through
+`charge_spin_analysis.py`, the entry point used by the launcher:
 
 ```bash
 tolkien-tools
+tolkien-tools charges
 ```
 
-Este modulo contiene la rutina de analisis de cargas Mulliken, CHELPG, Lowdin,
-Hirshfeld y poblaciones de spin.
+## Inputs and outputs
 
-En el modo individual, todos los archivos generados se escriben dentro de
-`charge_spin_results/` en la carpeta desde la que se ejecuta el analisis. Esto
-incluye archivos ORCA/LIO consolidados, series, promedios, histogramas, figuras,
-reportes y visores HTML. Los outputs originales, XYZ y demas inputs permanecen
-en la carpeta principal.
+In single-system mode, all generated files go into `charge_spin_results/`
+under the analysis working directory. This includes consolidated ORCA/LIO
+files, series, averages, histograms, figures, reports and HTML viewers.
+Original outputs, XYZ files and other inputs remain in the parent directory.
 
-Estructura interna:
+Global comparisons always generate `global_<analysis>_histograms.png`.
+The interactive flow also offers a clean publication figure,
+`global_<analysis>_histograms_paper.png`, without titles, legends, axis names
+or axis numbers, retaining tick marks for external editing.
 
-- `charge_spin_analysis.py`: entrada compatible usada por el launcher.
-- `charge_spin_cli.py`: flujo interactivo y orquestacion.
-- `charge_spin_common.py`: utilidades, prompts y configuraciones.
-- `charge_spin_io.py`: lectura/escritura de archivos consolidados y series.
-- `charge_spin_orca.py`: extraccion de poblaciones desde outputs ORCA.
-- `charge_spin_stats.py`: KDE, histogramas, normalizacion y checks de spin.
-- `charge_spin_plotting.py`: figuras de histogramas y series temporales.
-- `charge_spin_viewer.py`: visor HTML de localizacion de spin y geometria.
-- `charge_spin_coordination.py`: propuesta de ligandos y componentes
-  moleculares para complejos de coordinacion.
-- `charge_spin_global.py`: comparaciones globales entre subdirectorios.
+Global mode accepts individual atoms and entities defined in fragment mode.
+Reusing entities reads `spin_fragment_definitions.dat` and the latest
+`actor_<name>_*` series, avoiding mixtures of older atom and fragment files.
+Names such as `Fe_Porphyrin`, `X1` and `X2` can also be entered manually.
+Hyphens, periods and underscores are normalized, so `Fe-Porphyrin` and
+`Fe_Porphyrin` can be compared across systems. New analyses are discovered
+inside `charge_spin_results/`; older results in system directories remain
+supported.
 
-En el modo global entre subdirectorios, el programa genera siempre la figura
-normal `global_<analisis>_histograms.png`. Antes de escribir las figuras tambien
-pregunta si se quiere una figura de paper; si se responde que si, agrega
-`global_<analisis>_histograms_paper.png`, una version limpia sin titulos,
-leyendas, nombres de ejes ni numeros de ejes, pero conservando las marcas de
-ticks para editar externamente.
+## Spin statistics and atom selection
 
-El modo global acepta tanto atomos individuales como actores definidos en el
-modo de fragmentos. La opcion de reutilizar entidades lee
-`spin_fragment_definitions.dat` y busca las series `actor_<nombre>_*` del
-ultimo analisis, evitando mezclar archivos viejos de atomos o fragmentos.
-Tambien se pueden ingresar nombres como `Fe_Porphyrin`, `X1` o `X2`
-manualmente. Guiones, puntos y guiones bajos se normalizan para poder comparar,
-por ejemplo, `Fe-Porphyrin` con `Fe_Porphyrin` entre sistemas.
-Para análisis nuevos, busca estos archivos dentro de
-`charge_spin_results/`. También conserva compatibilidad con resultados
-anteriores escritos directamente en cada carpeta de sistema.
+The interactive flow offers:
 
-Para poblaciones de spin, el flujo interactivo permite elegir como se arman la
-estadistica, los histogramas y los archivos de salida:
+- **Raw spin values from each snapshot** (default): analyze the population
+  reported by each snapshot/output directly.
+- **Spin fraction relative to the selected atoms**: normalize each snapshot
+  by the summed spin of the selected atoms/entities.
 
-- `Raw spin values from each snapshot`: usa directamente el valor de spin que
-  sale de cada foto/output. Esta es la opcion por defecto.
-- `Spin fraction relative to the selected atoms`: normaliza cada snapshot por
-  la suma de spin de los atomos/entidades elegidos.
+Atoms can be selected manually or by automatic spin localization. Automatic
+mode calculates `abs(spin_atom) / sum(abs(spin_all_atoms))` for each snapshot,
+averages over the trajectory, and creates individual histograms for atoms
+above the requested threshold (5% by default). Other atoms are combined into
+an entity named `resto` with its own histogram.
 
-Si hay poblaciones de spin, la seleccion de atomos puede hacerse manualmente o
-automaticamente por localizacion de spin. El modo automatico calcula, para cada
-snapshot, `abs(spin_atom) / sum(abs(spin_todos_los_atomos))`, promedia esa
-fraccion en la dinamica y genera histogramas individuales solo para los atomos
-que superan el umbral minimo pedido (5% por defecto). El resto de los atomos se
-agrupa como una entidad `resto`, con su propio histograma.
+## Molecular fragments and coordination complexes
 
-Tambien existe un modo de fragmentos moleculares para analizar zonas como
-Fe/porfirina/agua/histidina. Antes de pedir la composicion de cada fragmento,
-el flujo permite elegir entre definicion manual y una propuesta automatica
-para complejos de coordinacion.
+Fragment mode analyzes regions such as Fe/porphyrin/water/histidine. Before
+entering fragment compositions, choose manual definitions or an automatic
+proposal for coordination complexes.
 
-La propuesta automatica detecta metales de transicion, infiere contactos
-metal-atomo por distancia, retira los metales del grafo molecular y asigna
-`L1`, `L2`, ..., a los componentes conectados restantes. Para cada componente
-informa si esta coordinado, su numero y tipos de atomos, los atomos donores y
-la denticidad. Un componente cercano pero no enlazado al metal queda marcado
-explicitamente como no coordinado. La propuesta se guarda en
-`coordination_ligand_proposal.dat` y se muestra en
-`coordination_ligand_viewer.html`, con un color por componente y etiquetas de
-indices y grupos. Es una ayuda basada en distancias y debe revisarse antes de
-aceptarla.
+The proposal detects transition metals, infers metal-donor contacts from
+distances, removes metals from the molecular graph, and assigns `L1`, `L2`,
+... to the remaining connected components. Each component is described by
+coordination status, atom counts/types, donor atoms and denticity. Nearby
+components without a metal bond are explicitly marked as uncoordinated.
 
-En WSL, cuando se pide abrir un visor, la rutina ejecuta `explorer.exe .` en
-la carpeta que contiene el HTML para evitar los errores de `xdg-open`; el
-archivo se abre manualmente con doble clic. En Linux nativo intenta abrir el
-HTML con el navegador predeterminado.
+The proposal is saved in `coordination_ligand_proposal.dat` and displayed in
+`coordination_ligand_viewer.html`, using a color per component and atom/group
+labels. This distance-based suggestion must be reviewed before acceptance.
 
-Al definir los fragmentos se pueden combinar los grupos detectados y los
-metales, por ejemplo `Fe88 + L1`, además de usar atomos separados por espacios
-o comas, rangos como `10-18`, y el token `remaining`. En modo manual se genera
-`spin_fragment_numbering_viewer.html` con todos los atomos numerados. Cada
-fragmento se analiza como una entidad cuyo valor de spin por snapshot es la
-suma de los spines atomicos que lo forman. Las definiciones usadas se guardan
-en `spin_fragment_definitions.dat` y las salidas principales llevan el sufijo
-`with_fragments`. Si quedan atomos sin asignar a ningun fragmento, el programa
-avisa cuales son y permite dejarlos fuera del analisis, agruparlos
-automaticamente como `resto`, o redefinir los fragmentos. Si se dejan fuera,
-el modo de spin crudo conserva las poblaciones de los fragmentos elegidos y el
-modo de fraccion normaliza cada snapshot usando solamente la suma de esos
-fragmentos.
+Fragment definitions can combine detected groups and metals, e.g. `Fe88 + L1`,
+individual atoms separated by spaces or commas, ranges such as `10-18`, and
+the token `remaining`. Manual mode creates
+`spin_fragment_numbering_viewer.html` with all atoms numbered.
 
-En modo ORCA, aunque el histograma se arme con muchos `SP_*.out`, el visor
-`spin_localization_viewer.html` usa una unica geometria representativa: toma el
-primer output ORCA ordenado que contenga un bloque
-`CARTESIAN COORDINATES (ANGSTROEM)`. En modo LIO, si existe un XYZ en la carpeta
-(`qm_completo.xyz`, `qm.xyz` u otro `*.xyz`), el mismo visor se genera desde ese
-XYZ. El visor escribe conectividad explicita inferida por distancias
-conservadoras para evitar enlaces largos espurios del auto-bonding de 3Dmol. En
-ambos casos, el flujo puede intentar abrir el HTML en el navegador por defecto.
+Each fragment is treated as an entity whose spin per snapshot is the sum of
+its atomic spins. Definitions are saved in `spin_fragment_definitions.dat`;
+main outputs use the suffix `with_fragments`. Unassigned atoms can be excluded,
+grouped automatically as `resto`, or assigned by redefining fragments.
+With exclusions, raw mode preserves the selected fragment populations;
+fraction mode normalizes by their summed spin only.
+
+## Geometry viewers
+
+In ORCA mode, `spin_localization_viewer.html` uses one representative geometry:
+the first sorted output containing `CARTESIAN COORDINATES (ANGSTROEM)`, even
+when many `SP_*.out` files contribute to the histograms. In LIO mode, an
+available XYZ (`qm_completo.xyz`, `qm.xyz` or another `*.xyz`) supplies the
+geometry. Explicit connectivity inferred from conservative distance limits
+avoids spurious long bonds from 3Dmol auto-bonding.
+
+When opening a viewer on WSL, the program opens its directory with
+`explorer.exe .`; double-click the HTML file to view it. On native Linux,
+it tries the default browser.
+
+## Internal organization
+
+- `charge_spin_analysis.py`: launcher-compatible entry point.
+- `charge_spin_cli.py`: interactive workflow and orchestration.
+- `charge_spin_common.py`: utilities, prompts and configuration.
+- `charge_spin_io.py`: consolidated files and time-series input/output.
+- `charge_spin_orca.py`: population extraction from ORCA outputs.
+- `charge_spin_stats.py`: KDE, histograms, normalization and spin checks.
+- `charge_spin_plotting.py`: histograms and time-series figures.
+- `charge_spin_viewer.py`: spin localization and geometry HTML viewer.
+- `charge_spin_coordination.py`: ligand/component proposals.
+- `charge_spin_global.py`: comparisons across subdirectories.

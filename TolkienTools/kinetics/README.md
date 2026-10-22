@@ -1,430 +1,277 @@
-# Multilambda Kinetics
+# Multiwavelength Kinetics
 
-Rutina conectada actualmente:
-
-```text
-TolkienTools/kinetics/kinet_python.py
-```
-
-Uso desde el menu maestro:
+Fit experimental multiwavelength kinetic spectra through `kinet_python.py`,
+the launcher-compatible entry point. The module also includes `kd_to_txt.py`
+for converting `.KD` files.
 
 ```bash
 tolkien-tools
+tolkien-tools kinetics
+tolkien-tools kinetics --help
 ```
 
-Este modulo contiene la rutina de cineticas experimentales multilambda y el
-conversor `kd_to_txt.py`.
+## Interactive workflow and preprocessing
 
-## Organizacion interna
+Launcher option 4, `tolkien-tools kinetics`, and
+`tolkien-tools kinetics file.KD` open the kinetics main menu before loading
+data. Choose an irreversible A -> B model, consecutive irreversible
+A -> B -> C, A <-> B -> C, or **Special mechanisms and studies**. The latter
+contains sulfide mechanisms with/without binding, transsulfuration, global
+fits and thermal disulfide acid-base speciation analysis.
 
-`kinet_python.py` se mantiene como punto de entrada compatible con llamadas
-viejas, pero la implementacion esta separada en modulos dentro de esta misma
-carpeta:
+Input is requested when the chosen analysis starts; a filename already given
+on the command line is reused. Data-dependent preprocessing follows loading.
+`--no-plot`, `--skip-preprocess-dialog`, `--global-manifest` and `activation`
+retain direct access for automated runs.
 
-- `kinet_cli.py`: parser de argumentos, preguntas interactivas y flujo general.
-- `kinet_common.py`: dataclasses y etiquetas compartidas.
-- `kinet_io.py`: lectura de tablas y conversion previa de `.KD`.
-- `kinet_preprocessing.py`: baseline, recortes de tiempo/lambda y descarte de espectros.
-- `kinet_models.py`: perfiles de concentracion para los modelos cineticos.
-- `kinet_fitting.py`: NNLS y optimizacion de constantes.
-- `kinet_linalg.py`: helpers de algebra lineal/SVD.
-- `kinet_plotting.py`: figuras exploratorias, diagnosticos y panel final.
-- `kinet_t0.py`: estimador de tiempo cero para la reduccion por sulfuro sin binding.
-- `kinet_export.py`: archivos finales de concentraciones, espectros puros, resumen y PNG.
-
-Cada analisis escribe sus artefactos en una subcarpeta
-`results_<nombre-del-archivo>` junto al archivo de entrada, para no mezclar
-resultados con experimentos pendientes de procesar.
-
-La poda temporal de inicio conserva los espectros con `t >= t_inicio`. Despues
-de aplicar todos los descartes de espectros/tiempos, el tiempo corregido se
-redefine siempre como:
+Each analysis writes to `results_<input-stem>` beside the input file.
+After removing spectra and applying time cutoffs (`t >= t_start` and optional
+`t <= t_end`), corrected time normally becomes:
 
 ```text
-t_corregido = t_original - t_original_del_primer_espectro_retenido
+t_corrected = t_original - original_time_of_first_retained_spectrum
 ```
 
-Por lo tanto, el primer espectro que entra al ajuste queda como `t = 0`, aunque
-`t_inicio` sea menor o igual al tiempo original de ese espectro.
+The first retained spectrum is therefore at `t = 0`, even if the requested
+start cutoff precedes it. For general A-B-C models, an earlier spectrum can
+instead be selected by its original index as the fixed reactant reference,
+including outside the fitted time window. In that case, corrected time is
+referenced to the selected A spectrum.
 
-Una vez elegido el modelo, la rutina imprime una presentacion basica con el
-esquema cinetico, las especies absorbentes, la evolucion temporal ajustada, los
-parametros y notas de interpretacion.
+The selected model is introduced with its scheme, absorbing species,
+time profiles, parameters and interpretation notes. Special mechanisms use
+385-650 nm by default; general models use 320-820 nm. Override either bound
+with `--lambda-min`, `--lambda-max` or the interactive dialog.
 
-Los mecanismos especiales usan por defecto la ventana de ajuste 385-650 nm.
-Los modelos generales conservan el intervalo predeterminado 320-820 nm. Ambos
-limites pueden reemplazarse con `--lambda-min` y `--lambda-max` o en el dialogo
-interactivo.
-
-## Mecanismos especiales
-
-El menu de modelos incluye una categoria separada para analisis especificos de
-un sistema quimico. Actualmente contiene:
-
-- `reduccion autocatalitica de MbFe(III) por sulfuros`: ajusta globalmente
-  todos los tiempos como `dx/dt = (k_slow + k_auto * x) * (1 - x)`, donde `x`
-  es la fraccion de `MbFeII`. `k_slow,obs` describe la fase lenta inicial y
-  `k_auto` cuantifica la aceleracion aparente por especies reactivas de azufre.
-  La dependencia de `k_slow,obs` con `[HS-]` se debe determinar
-  experimentalmente antes de asignarle una interpretacion mecanistica.
-
-- `reduccion autocatalitica de MbFe(III) por sulfuros con binding reversible`:
-  agrega el paso `MbFeIII + HS- <-> MbFeIII-HS` antes de la reduccion. Ajusta
-  tres espectros absorbentes (`MbFeIII`, `MbFeIII-HS`, `MbFeII`) y cuatro
-  constantes (`k_on`, `k_off`, `k_slow,obs`, `k_cat`). En un experimento
-  individual, `k_on` se trata como constante aparente pseudo-primer orden; para estimar un
-  `k_on` bimolecular hay que considerar la concentracion efectiva de `HS-`.
-
-- `reduccion de MbFe(III) por HSS- sin binding en la ventana ajustada`: usa el
-  cambio de las trazas de Soret para localizar la adicion y ajusta el
-  decaimiento rapido de MbFeIII a 409 nm como un exponencial con una deriva
-  lenta superpuesta. Propone `t0` en cuatro constantes de tiempo, cuando el
-  binding de `HSS-` esta aproximadamente 98 % completo, y ajusta desde ese
-  tiempo una conversion irreversible de primer orden
-  `MbFeIII-HSS -> MbFeII`. Ajusta una unica constante `k` y no incluye
-  autocatálisis.
-
-- `reduccion de MbFe(III)-HS por HSS- agregado con transsulfuracion`: parte de
-  `MbFeIII-HS` ya formado por exceso de `HS-` y agrega una cantidad conocida de
-  `HSS-` externo. El modelo incluye internamente `MbFeIII-HSS`, que comparte
-  espectro con `MbFeIII-HS`, por lo que el ajuste espectral usa dos especies
-  visibles (`MbFeIII-Sx = MbFeIII-HS + MbFeIII-HSS`, `MbFeII`) pero cuatro
-  constantes (`k_slow,obs`, `k_auto`, `k_ts`, `k_fast`). La relacion inicial
-  agregada se fija con `--hss-ratio R`.
-
-- `reduccion de MbFe(III)-HS por HSS- agregado con transsulfuracion sin
-  autocatalisis`: conserva la reduccion lenta intrinseca de `MbFeIII-HS` pero
-  elimina el termino `k_auto`. La aceleracion surge exclusivamente de la
-  formacion y reduccion de `MbFeIII-HSS`. Ajusta tres constantes
-  (`k_slow,obs`, `k_ts`, `k_fast`) y usa la relacion inicial fijada con
-  `--hss-ratio R`.
-
-## Detalles tecnicos de los modelos
+## Special mechanisms
 
 ### `mbfe3_sulfide_autocatalytic`
 
-Este modelo asume que la especie inicial observable ya es el complejo
-coordinado `MbFeIII-HS`. Es apropiado cuando `[HS-]` es alta y el binding es
-rapido frente a la ventana temporal observada. La variable interna
-`x = [MbFeII] / [Mb]total` representa la fraccion reducida y se usa como proxy
-fenomenologico de especies reactivas de azufre no observadas.
-
-La evolucion es:
+Autocatalytic MbFe(III) reduction by sulfides assumes the initial observable
+species is the coordinated MbFeIII-HS complex. This is appropriate when HS-
+is in excess and binding is fast compared with the fitted time window.
+The analytical profiles are:
 
 ```text
+x = [MbFeII] / [Mb]total
 dx/dt = (k_slow + k_auto*x) * (1 - x)
 [MbFeIII-HS](t) = c0 * (1 - x)
 [MbFeII](t) = c0 * x
 ```
 
-Este caso tiene una solucion analitica compacta y se evalua directamente en
-`kinet_models.py`, sin integracion numerica.
+All times and two absorbing species are fitted. `k_slow,obs` describes the
+initial slow phase; its dependence on [HS-] must be measured before assigning
+a mechanistic interpretation. `x` is a phenomenological proxy for unobserved
+reactive sulfur species, and `k_auto` measures apparent acceleration; it must
+not be interpreted directly as k_Red(HSS-).
 
-En el flujo interactivo, este modelo activa un diagnostico especifico antes de
-la poda temporal. La rutina corrige provisoriamente la linea de base con
-750-850 nm, detecta el salto espectral temprano asociado a la adicion de HS- y
-propone como `t0` el primer espectro que representa la meseta temprana de
-`MbFeIII-HS`. El panel muestra los espectros corregidos, las trazas a 409, 428
-y 434 nm y la distancia espectral a la meseta. El tiempo sugerido y la region
-750-850 nm quedan como valores predeterminados en el dialogo, pero pueden
-reemplazarse manualmente.
+Before time trimming, the interactive diagnostic provisionally corrects the
+baseline using 750-850 nm, detects the early spectral jump associated with
+HS- addition, and proposes the first spectrum of the early MbFeIII-HS plateau
+as t0. The panel shows corrected spectra, 409/428/434 nm traces and spectral
+distance to the plateau. Suggested t0 and baseline region can be overridden.
 
 ### `mbfe3_sulfide_binding_autocatalytic`
 
-Este modelo agrega el proceso inicial de coordinacion:
+This model adds reversible coordination before reduction:
 
 ```text
 MbFeIII + HS- <-> MbFeIII-HS -> MbFeII
-```
 
-Las especies absorbentes ajustadas son `MbFeIII`, `MbFeIII-HS` y `MbFeII`.
-Las constantes ajustadas son `k_on`, `k_off`, `k_slow,obs` y `k_cat`.
-
-Para un unico experimento, `k_on` se modela como constante aparente
-pseudo-primer orden:
-
-```text
 d[MbFeIII]/dt    = -k_on*[MbFeIII] + k_off*[MbFeIII-HS]
 x                = [MbFeII] / [Mb]total
 d[MbFeIII-HS]/dt = k_on*[MbFeIII] - (k_off + k_slow + k_cat*x)*[MbFeIII-HS]
 d[MbFeII]/dt     = (k_slow + k_cat*x)*[MbFeIII-HS]
 ```
 
-Si `[HS-]` esta en exceso y se conoce su concentracion efectiva, el `k_on`
-bimolecular se debe estimar fuera del ajuste dividiendo la constante aparente
-por `[HS-]`.
+Three absorbing spectra (MbFeIII, MbFeIII-HS, MbFeII) and four rate constants
+(k_on, k_off, k_slow,obs, k_cat) are fitted. In a single experiment k_on is
+an apparent pseudo-first-order constant. With known excess [HS-], estimate
+the bimolecular constant separately by dividing by [HS-]. k_off is first
+order; k_cat is phenomenological and is not directly k_Red(HSS-).
 
-`k_off` es una constante de primer orden. En el flujo interactivo se ofrecen
-por separado las opciones de fijar el primer espectro retenido como
-`MbFeIII` y el ultimo como `MbFeII`. El espectro de `MbFeIII-HS` queda libre,
-salvo que se provea como espectro conocido.
+The interactive flow separately offers to fix the first retained spectrum
+as MbFeIII and the last as MbFeII. The MbFeIII-HS spectrum remains free unless
+provided as a known spectrum.
 
-Este sistema se resuelve con `scipy.integrate.solve_ivp`. `solve_ivp` es un
-integrador numerico de ecuaciones diferenciales ordinarias: el codigo define
-las derivadas del modelo y el integrador calcula las concentraciones en los
-tiempos experimentales. Es conveniente aca porque el mecanismo incluye un
-intermedio observable y una velocidad de reduccion que depende de la fraccion
-reducida acumulada. Esa dependencia autocatalitica acopla las ecuaciones y una
-solucion analitica cerrada seria mas dificil de mantener y mas propensa a
-errores.
+Coupled nonlinear concentration profiles are solved with
+`scipy.integrate.solve_ivp`. This keeps association, dissociation, reduction
+and product accumulation explicit and allows later model extensions, at
+the cost of numerical integration at each optimization trial.
 
-La ventaja practica de `solve_ivp` es que el codigo sigue de cerca el mecanismo
-quimico: tasas de asociacion, disociacion, reduccion y acumulacion de producto.
-Tambien facilita extender el modelo mas adelante, por ejemplo para agregar
-dependencia explicita de `[HS-]`, consumo de sulfuro u otros intermediarios. La
-desventaja es que cada prueba de parametros durante el ajuste requiere integrar
-el sistema, por lo que es mas costoso que una formula analitica. Para tres
-especies y una cantidad normal de tiempos experimentales, el costo deberia ser
-razonable.
+### `mbfe3_hss_no_binding`
+
+MbFe(III) reduction by HSS- without binding in the fitted window uses Soret
+traces to locate addition, fitting fast MbFeIII decay at 409 nm with an
+exponential plus a slow drift; 428 and 434 nm provide controls. Proposed t0
+is four time constants after addition, when HSS- binding is approximately
+98% complete. The subsequent MbFeIII-HSS -> MbFeII conversion is irreversible
+first order with one rate constant k and no autocatalysis.
 
 ### `mbfe3_sulfide_hss_transsulfuration`
 
-Este modelo describe experimentos donde primero se forma rapidamente
-`MbFeIII-HS` por exceso de `HS-` y luego se agrega `HSS-` externo en una
-relacion conocida:
+For experiments where excess HS- first forms MbFeIII-HS and a known amount
+of HSS- is then added:
 
 ```text
-R_HSS = [HSS-]agregado / [Mb]total
-```
-
-El mecanismo interno es:
-
-```text
+R_HSS = [HSS-]added / [Mb]total
 A = MbFeIII-HS
 B = MbFeIII-HSS
 P = MbFeII
-S = HSS- libre agregado efectivo
+S = effective free added HSS-
 x = P / [Mb]total
 
 dA/dt = -(k_slow + k_auto*x)*A - k_ts*A*S
 dB/dt =  k_ts*A*S - k_fast*B
 dP/dt =  (k_slow + k_auto*x)*A + k_fast*B
 dS/dt = -k_ts*A*S
-```
 
-Las condiciones iniciales son:
-
-```text
 A(0) = c0
 B(0) = 0
 P(0) = 0
 S(0) = R_HSS*c0
 ```
 
-`MbFeIII-HS` y `MbFeIII-HSS` se distinguen cineticamente pero no
-espectralmente. Por eso el ajuste recibe solo:
-
-```text
-[MbFeIII-Sx](t) = A(t) + B(t)
-[MbFeII](t) = P(t)
-```
-
-La autocatálisis endogena del mecanismo con `HS-` se mantiene en el termino
-`k_auto*x`. El `HSS-` agregado se trata como una especie externa consumible y se
-fija con `--hss-ratio`.
+MbFeIII-HS and MbFeIII-HSS are kinetically distinct but share a spectrum.
+The two visible species are `[MbFeIII-Sx](t) = A(t) + B(t)` and
+`[MbFeII](t) = P(t)`. Four constants are fitted: k_slow,obs, k_auto, k_ts and
+k_fast. Endogenous autocatalysis is represented by k_auto*x; added HSS- is a
+consumable external species initialized with `--hss-ratio R`.
 
 ### `mbfe3_sulfide_hss_transsulfuration_no_auto`
 
-Este modelo representa los experimentos en los que `MbFeIII-HS` esta formado
-en `t = 0` y se agrega `HSS-`. Conserva la reduccion lenta intrinseca del
-complejo inicial, relevante antes de que se acumule una cantidad apreciable del
-intermedio transulfurado, pero no incluye aceleracion autocatalitica por
-polisulfuros endogenos.
+This variant retains intrinsic slow reduction of initial MbFeIII-HS but
+omits endogenous polysulfide autocatalysis:
 
 ```text
-A = MbFeIII-HS
-B = MbFeIII-HSS
-P = MbFeII
-S = HSS- libre agregado efectivo
-
 dA/dt = -k_slow*A - k_ts*A*S
 dB/dt =  k_ts*A*S - k_fast*B
 dP/dt =  k_slow*A + k_fast*B
 dS/dt = -k_ts*A*S
 ```
 
-Las condiciones iniciales y las especies visibles son las mismas que en el
-modelo con autocatalisis:
+Initial conditions and visible species match the autocatalytic variant.
+At t=0 the MbFeII formation rate is k_slow*c0 because no MbFeIII-HSS exists
+yet. Subsequent buildup and reduction of B can produce sigmoidal traces.
+The fitted constants are k_slow,obs, k_ts and k_fast.
 
-```text
-A(0) = c0
-B(0) = 0
-P(0) = 0
-S(0) = R_HSS*c0
+## Noninteractive fitting and known spectra
 
-[MbFeIII-Sx](t) = A(t) + B(t)
-[MbFeII](t) = P(t)
-```
-
-En `t = 0`, la velocidad de formacion de `MbFeII` es `k_slow*c0`, porque
-todavia no hay `MbFeIII-HSS`. La aceleracion posterior puede producir trazas
-sigmoideas a medida que se forma `B` y comienza a contribuir `k_fast*B`.
-
-Ejemplo no interactivo:
+For any supported mechanism, select its identifier with `--model`:
 
 ```bash
-tolkien-tools 4 experimento.dat \
+tolkien-tools 4 experiment.dat \
   --model mbfe3_sulfide_autocatalytic \
-  --baseline-mode none \
-  --no-plot
-```
+  --baseline-mode none --no-plot
 
-```bash
-tolkien-tools 4 experimento.dat \
+tolkien-tools 4 experiment.dat \
   --model mbfe3_sulfide_binding_autocatalytic \
-  --baseline-mode none \
-  --no-plot
-```
+  --baseline-mode none --no-plot
 
-```bash
-tolkien-tools 4 experimento.dat \
+tolkien-tools 4 experiment.dat \
   --model mbfe3_sulfide_hss_transsulfuration \
-  --hss-ratio 20 \
-  --baseline-mode none \
-  --no-plot
-```
+  --hss-ratio 20 --baseline-mode none --no-plot
 
-```bash
-tolkien-tools 4 experimento.dat \
+tolkien-tools 4 experiment.dat \
   --model mbfe3_sulfide_hss_transsulfuration_no_auto \
-  --hss-ratio 20 \
-  --baseline-mode none \
-  --no-plot
+  --hss-ratio 20 --baseline-mode none --no-plot
 ```
 
-Para fijar el espectro del reactivo al primer espectro experimental y ajustar
-solo los espectros restantes, usar:
+Fix the reactant spectrum to the first retained experimental spectrum with
+`--fix-initial-spectrum`; fix the product to the last with
+`--fix-final-spectrum`. Either or both may be used:
 
 ```bash
-tolkien-tools 4 experimento.dat \
-  --model a_to_b_to_c \
-  --fix-initial-spectrum \
-  --fit-method nnls
+tolkien-tools 4 experiment.dat --model a_to_b_to_c \
+  --fix-initial-spectrum --fix-final-spectrum --fit-method nnls
 ```
 
-Esta opcion esta disponible para todos los mecanismos. No se combina con
-`--initial-spectrum-weight`, que es solo una restriccion suave sobre el espectro
-inicial.
+The initial-spectrum option is available for all mechanisms and cannot be
+combined with `--initial-spectrum-weight`, which is only a soft constraint.
+Interactive endpoint questions follow spectrum/time trimming, so the
+endpoints are the ones retained for fitting.
 
-Para fijar tambien el espectro del producto al ultimo espectro experimental:
+### Experimental MCR-ALS
+
+`a_to_b_to_c` and `a_rev_b_to_c` also accept `--fit-method mcr_als`.
+Starting from NNLS concentrations, this alternates nonnegative spectral and
+concentration estimation with concentration closure. Keep concentrations
+near the kinetic profile using:
 
 ```bash
-tolkien-tools 4 experimento.dat \
-  --model a_to_b_to_c \
-  --fix-final-spectrum \
-  --fit-method nnls
+--mcr-kinetic-weight 1 --mcr-max-iter 200
 ```
 
-## Ajuste global de transulfuracion para varios valores de R
+This is exploratory: reported rate constants are the projection of the MCR
+result onto the chosen mechanism. With a known induction period, use a
+spectrum from the pre-injection plateau as the fixed A reference rather
+than fixing the first post-injection spectrum.
 
-Los dos mecanismos de transulfuracion pueden compartir sus constantes y sus
-espectros puros entre varios experimentos. El manifiesto debe contener las
-columnas `filename`, `R` y `c0_after`:
+## Global transsulfuration fits across R values
+
+Both transsulfuration variants can share rate constants and pure spectra
+across experiments. Manifest columns are `filename`, `R` and `c0_after`:
 
 ```csv
 filename,R,c0_after
-experimento_R5.TXT,5,7.868852459e-6
-experimento_R10.TXT,10,7.741935484e-6
+experiment_R5.TXT,5,7.868852459e-6
+experiment_R10.TXT,10,7.741935484e-6
 ```
-
-Ejemplo para el modelo sin autocatalisis:
 
 ```bash
-tolkien-tools 4 \
-  --global-manifest serie.csv \
-  --global-root /ruta/a/los/datos \
+tolkien-tools 4 --global-manifest series.csv \
+  --global-root /path/to/data \
   --model mbfe3_sulfide_hss_transsulfuration_no_auto \
-  --fix-initial-spectrum \
-  --fix-final-spectrum \
-  --global-output-dir resultados_globales
+  --fix-initial-spectrum --fix-final-spectrum \
+  --global-output-dir global_results
 ```
 
-El flujo global usa por defecto el tiempo de agregado de HSS- como `t = 47 s`,
-corrige la linea de base en 750-820 nm y ajusta 410-650 nm. Conserva el reloj
-quimico como `t_corregido = t_original - 47 s`, aunque el primer espectro
-retenido sea posterior. Cada experimento aporta el mismo peso total al objetivo
-para que una serie con mas tiempos no domine el ajuste.
+Defaults: HSS- addition at 47 s, baseline region 750-820 nm and fit window
+410-650 nm. Unlike the ordinary single-file clock, global corrected time
+remains `t_original - 47 s` even if the first retained spectrum is later.
+Each experiment has equal total objective weight, preventing longer series
+from dominating.
 
-Las constantes `k_slow`, `k_ts`, `k_fast` y, en el modelo autocatalitico,
-`k_auto`, son globales. `R`, `c0_after` y los tiempos siguen siendo propios de
-cada archivo. Los valores de literatura/COPASI se usan solamente como punto de
-partida numerico; no quedan fijos ni penalizados.
-
-Si `k_fast` fue medido independientemente, puede retirarse del conjunto de
-parametros optimizados:
+k_slow, k_ts, k_fast and (when included) k_auto are global; R, c0_after and
+times remain file-specific. Literature/COPASI values provide numerical
+starting guesses only; they are neither fixed nor penalized.
+An independently measured k_fast can be fixed explicitly:
 
 ```bash
 --global-fix-k-fast 0.001
 ```
 
-El resumen marca explicitamente ese valor como fijo. Las demas constantes se
-siguen obteniendo del ajuste global multi-R.
+The summary marks it as fixed; other constants remain globally fitted.
 
-Tambien se pueden fijar ambos extremos:
+## Activation and acid-base equilibrium analysis
 
-```bash
-tolkien-tools 4 experimento.dat \
-  --model a_to_b_to_c \
-  --fix-initial-spectrum \
-  --fix-final-spectrum \
-  --fit-method nnls
-```
-
-En el flujo interactivo, la misma opcion se pregunta inmediatamente despues de
-descartar espectros/tiempos. De esa manera el "primer espectro" y el "ultimo
-espectro" son los extremos que quedan luego de la poda temporal y que entraran
-al ajuste.
-
-En los modelos generales A-B-C, el menu tambien permite escribir el indice
-original de un espectro previo como referencia del reactivo. Ese espectro puede
-quedar fuera de la ventana cinetica: se usa para fijar A, mientras el ajuste
-comienza en `t_inicio`. En ese caso el reloj corregido queda referido al tiempo
-del espectro A seleccionado, no al primer espectro retenido.
-
-### MCR-ALS experimental
-
-Los modelos `a_to_b_to_c` y `a_rev_b_to_c` tambien aceptan
-`--fit-method mcr_als`. Este modo parte de un ajuste NNLS para inicializar las
-concentraciones y luego alterna la estimacion no negativa de espectros y
-concentraciones. Impone cierre de concentracion y permite mantener las
-concentraciones cerca del perfil cinetico mediante:
+Fit rate constants measured at several temperatures and pH values using two
+forms in rapid equilibrium. Select **Special mechanisms and studies**, then
+**Thermal analysis of disulfide acid-base speciation**, or run:
 
 ```bash
---mcr-kinetic-weight 1
---mcr-max-iter 200
-```
-
-Es una herramienta exploratoria: los parametros cineticos reportados son la
-proyeccion del resultado MCR sobre el mecanismo elegido. Para experimentos con
-tiempo de induccion conocido, conviene fijar A desde un archivo de espectro
-obtenido del plateau previo, en vez de usar `--fix-initial-spectrum` sobre el
-primer espectro posterior a la inyeccion.
-
-## Analisis especial de activacion y equilibrio acido-base
-
-Ajusta una tabla de constantes cineticas a distintas temperaturas y pHs mediante
-un modelo de dos formas en equilibrio rapido. Disponible desde la opcion 4 del
-menu principal, luego Mecanismos y estudios especiales y Analisis termico de especiacion acido-base de disulfuros, o con:
-
-```bash
-tolkien-tools kinetics activation mediciones.csv --output results_activation
+tolkien-tools kinetics activation measurements.csv --output results_activation
 tolkien-tools kinetics activation --interactive
 ```
 
-Entrada CSV/TSV con encabezados `T_K,pH,k`, temperatura absoluta en kelvin,
-pH adimensional y constantes positivas en s^-1, usando punto decimal.
-Opcionales: `id` y `sigma_log_k`. Ver el [manual tecnico](activacion_acido_base.md)
-para ecuaciones, entrada manual, controles, archivos de salida y limitaciones.
+CSV/TSV headers: `T_K,pH,k`, with absolute temperature in kelvin,
+dimensionless pH, positive rate constants in s^-1 and decimal points.
+Optional columns: `id`, `sigma_log_k`. See the
+[technical manual](activacion_acido_base.md) (Spanish) for equations,
+manual entry, checks, outputs and limitations. The separate
+[kinetic model manual](modelos_cineticos_tolkien_tools.md) is also retained
+in its original language.
 
-### Menu cinetico sin cargar datos
+## Internal organization
 
-La opcion 4 del lanzador abre directamente el menu principal de cinetica.
-Tambien se muestra con `tolkien-tools kinetics` o `tolkien-tools kinetics archivo.KD`.
-El primer menu ofrece A -> B irreversible, A -> B -> C irreversible,
-A <-> B -> C y Mecanismos y estudios especiales. Esta ultima opcion contiene
-los mecanismos de sulfuros con/sin binding, transulfuracion, sus ajustes globales
-y el Analisis termico de especiacion acido-base de disulfuros.
-El archivo se solicita al iniciar el analisis elegido; si ya se indico por terminal,
-se reutiliza. Las opciones de preprocesado dependientes de los datos se ofrecen
-tras cargarlos. `--no-plot`, `--skip-preprocess-dialog`, `--global-manifest` y el
-subcomando `activation` conservan el acceso directo para ejecuciones automaticas.
+- `kinet_python.py`: compatible entry point.
+- `kinet_cli.py`: arguments, interactive dialogs and orchestration.
+- `kinet_common.py`: shared dataclasses and labels.
+- `kinet_io.py`: table loading and `.KD` conversion.
+- `kinet_preprocessing.py`: baseline, time/wavelength trimming and exclusions.
+- `kinet_models.py`: kinetic concentration profiles.
+- `kinet_fitting.py`: NNLS and rate optimization.
+- `kinet_linalg.py`: linear algebra/SVD helpers.
+- `kinet_plotting.py`: exploratory plots, diagnostics and final panel.
+- `kinet_t0.py`: time-zero estimator for reduction without binding.
+- `kinet_export.py`: concentrations, pure spectra, summaries and PNG output.

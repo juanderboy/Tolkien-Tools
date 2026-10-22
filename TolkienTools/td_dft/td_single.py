@@ -25,7 +25,7 @@ def process_single_file(filename, args):
     """
     energies_eV, foscs = parse_orca_tddft_eV_fosc(filename)
     if energies_eV.size == 0 or foscs.size == 0:
-        print(f"Aviso: no se pudieron obtener transiciones desde {filename}.")
+        print(f"Warning: could not extract transitions from {filename}.")
         return
 
     # espectro ε(E)
@@ -83,7 +83,7 @@ def process_single_file(filename, args):
 
     if x_plot.size == 0:
         print(
-            f"Aviso: {os.path.basename(filename)} no tiene puntos en el rango "
+            f"Warning: {os.path.basename(filename)} has no points in the range "
             f"seleccionado."
         )
         return
@@ -152,7 +152,7 @@ def process_single_file(filename, args):
     if not args.nosave:
         out_png = filename + "-nea-eps.png"
         fig.savefig(out_png, dpi=300)
-        print(f"Espectro guardado en: {out_png}")
+        print(f"Spectrum saved to: {out_png}")
 
     # exportar datos ε como espectro_*.dat (λ) o espectroE_*.dat (E)
     if args.export:
@@ -176,7 +176,7 @@ def process_single_file(filename, args):
 
         data = np.column_stack([x_plot, eps_plot])
         np.savetxt(out_dat, data, header=header)
-        print(f"Datos exportados en: {out_dat}")
+        print(f"Data exported to: {out_dat}")
 
     if args.show:
         plt.show()

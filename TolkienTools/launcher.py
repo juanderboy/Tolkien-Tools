@@ -48,73 +48,64 @@ TOOLS = (
 MD_SUBCOMMANDS = (
     (
         "inspect-merge",
-        "Revisar segmentos, frames y tiempos; despues ofrece mergear XYZ y cargas/spines.",
+        "Inspect segments, frames and times, then optionally merge XYZ and charge/spin data.",
     ),
     (
         "geom",
-        "Generar visor 3D y analizar distancias, angulos y dihedros.",
+        "Create a 3D viewer and analyze distances, angles and dihedrals.",
     ),
     (
         "geom-compare",
-        "Comparar histogramas de metricas geometricas entre dinamicas.",
+        "Compare geometric metric histograms across trajectories.",
     ),
     (
         "split-nc",
-        "Inspeccionar QM_*.nc fragmentados y generar restarts muestreados.",
+        "Inspect fragmented QM_*.nc trajectories and generate sampled restarts.",
     ),
 )
 
 
 REQUIREMENTS_GUIDE = """\
-Requisitos para instalar y correr Tolkien Tools
+Installing and running Tolkien Tools
 
-Base comun:
-  - Python 3.10 o superior.
-  - Paquetes Python:
-      numpy
-      scipy
-      matplotlib
-      py3Dmol, plotly (opcionales, para el visor 3D de geometria)
-  - En Ubuntu/Debian se pueden instalar con:
+Core requirements:
+  - Python 3.10 or newer.
+  - Python packages: numpy, scipy, matplotlib.
+  - Optional 3D viewer packages: py3Dmol, plotly.
+  - Install with:
       python3 -m pip install numpy scipy matplotlib py3Dmol plotly
-    o, si se prefiere usar paquetes del sistema:
+    Ubuntu/Debian system packages are also available:
       sudo apt install python3 python3-numpy python3-scipy python3-matplotlib
 
-Programas externos:
-  - No hace falta tener ORCA ni LIO instalados para ejecutar Tolkien Tools.
-    Las rutinas leen archivos ya generados por esos programas.
-  - Para `tolkien-tools md split-nc` hace falta tener cpptraj disponible.
-  - Para abrir automaticamente reportes HTML desde TD-DFT, son utiles
-    xdg-open en Linux o wslview en WSL. Si no estan, el HTML igual se genera
-    y se puede abrir manualmente.
+External programs:
+  - ORCA and LIO are not required: Tolkien Tools reads their existing outputs.
+  - `tolkien-tools md split-nc` requires cpptraj on PATH.
+  - Opening TD-DFT HTML reports can use xdg-open on Linux or wslview on WSL.
+    Reports can also be opened manually.
 
-Archivos esperados por rutina:
+Expected input by module:
   1. Molecular dynamics processing
-     - Trabaja sobre corridas fragmentadas en subcarpetas numericas 1, 2, 3...
-     - Puede inspeccionar segmentos y unir qm.xyz junto con poblaciones,
-       analizar geometria y generar rst7 muestreados desde QM_*.nc usando cpptraj.
-     - El analisis geometrico puede generar un visor 3D HTML con py3Dmol o
-       Plotly si estan instalados.
-     - Subcomandos: inspect-merge, geom, split-nc.
-
+     - Fragmented runs in numbered subdirectories (1, 2, 3, ...).
+     - Inspect segments, merge qm.xyz and populations, analyze geometry,
+       and sample rst7 restarts from QM_*.nc using cpptraj.
+     - Optional 3D HTML viewers use py3Dmol or Plotly.
+     - Subcommands: inspect-merge, merge-xyz, geom, geom-compare, split-nc.
   2. TD-DFT spectra
-     - Lee salidas TD-DFT de ORCA, normalmente archivos TD_*.out.
-     - Usa numpy, scipy.signal.find_peaks y matplotlib.
-     - Puede generar PNG, CSV/DAT y un HTML interactivo.
-
+     - ORCA TD-DFT outputs, usually TD_*.out.
+     - Uses numpy, scipy.signal.find_peaks and matplotlib.
+     - Generates PNG, CSV/DAT and interactive HTML reports.
   3. Charge and spin analysis
-     - Modo LIO: lee series mq_*.dat y, si existen, ms_*.dat.
-     - Modo ORCA: lee archivos <prefijo>_N.out o <prefijo>_N.dat con tablas
-       Mulliken, Loewdin, Hirshfeld y/o CHELPG.
-     - Usa numpy, scipy.stats.gaussian_kde, scipy.signal.find_peaks y
-       matplotlib.
+     - LIO mode: mq_*.dat and optional ms_*.dat series.
+     - ORCA mode: <prefix>_N.out or <prefix>_N.dat population tables.
+     - Supports Mulliken, Loewdin, Hirshfeld, CHELPG and spin populations.
+     - Uses numpy, scipy.stats.gaussian_kde, scipy.signal.find_peaks
+       and matplotlib.
+  4. Multiwavelength kinetics
+     - Wavelength-by-time spectrophotometric tables in semicolon-delimited
+       TXT/CSV files; also converts .KD files.
+     - Uses numpy, scipy.optimize, scipy.optimize.nnls and matplotlib.
 
-  4. Multilambda kinetics
-     - Lee tablas espectrofotometricas lambda x tiempo en .txt/.csv estilo
-       semicolon, y puede convertir archivos .KD.
-     - Usa numpy, scipy.optimize, scipy.optimize.nnls y matplotlib.
-
-Chequeo rapido:
+Quick check:
   python3 -c "import numpy, scipy, matplotlib; print('OK')"
 """
 
@@ -141,26 +132,26 @@ def print_requirements_guide() -> None:
 
 
 def prompt_tool_choice() -> Tool | None:
-    print("Que queres hacer?")
+    print("What would you like to do?")
     for index, tool in enumerate(TOOLS, start=1):
         print(f"  {index}. {tool.name}")
         print(f"     {tool.description}")
-    print("  i. Instructivo de instalacion y dependencias")
-    print("  0. Salir")
+    print("  i. Installation and dependency guide")
+    print("  0. Exit")
     print()
 
-    choice = input("Elegir opcion: ").strip()
+    choice = input("Choose an option: ").strip()
     if choice.lower() in {"i", "info", "deps", "dependencias", "requirements", "requisitos"}:
         print_requirements_guide()
         return prompt_tool_choice()
-    if choice in {"", "0", "q", "quit", "salir"}:
+    if choice in {"", "0", "q", "quit", "exit", "salir"}:
         return None
     if not choice.isdigit():
-        raise ValueError("La opcion debe ser un numero.")
+        raise ValueError("The option must be a number.")
 
     index = int(choice)
     if index < 1 or index > len(TOOLS):
-        raise ValueError(f"La opcion debe estar entre 1 y {len(TOOLS)}.")
+        raise ValueError(f"The option must be between 1 and {len(TOOLS)}.")
     return TOOLS[index - 1]
 
 
@@ -193,9 +184,9 @@ def tool_from_cli_choice(choice: str) -> Tool:
     }
     if normalized not in aliases:
         raise ValueError(
-            "La opcion debe ser 1, 2, 3 o 4 "
-            "(tambien se aceptan aliases como md, td, charges o kinetics). "
-            "Para dependencias usa: requirements, deps o requisitos."
+            "Choose 1, 2, 3 or 4 "
+            "(aliases such as md, td, charges or kinetics are also accepted). "
+            "For dependencies, use requirements or deps."
         )
     return TOOLS[aliases[normalized]]
 
@@ -221,37 +212,37 @@ def prompt_extra_args(tool: Tool) -> list[str]:
 
 def prompt_md_processing_choice() -> tuple[str, list[str] | None]:
     print()
-    print("Herramientas de procesado de dinamicas:")
+    print("Molecular dynamics processing tools:")
     for index, (command, description) in enumerate(MD_SUBCOMMANDS, start=1):
         print(f"  {index}. {command}")
         print(f"     {description}")
-    print("  h. Ayuda general de procesado")
-    print("  0. Volver al menu principal")
-    print("  q. Salir")
+    print("  h. General processing help")
+    print("  0. Back to the main menu")
+    print("  q. Exit")
     print()
 
-    choice = input("Elegir herramienta (Enter = inspect-merge): ").strip().lower()
+    choice = input("Choose a tool (Enter = inspect-merge): ").strip().lower()
     if choice in {"h", "help", "ayuda"}:
         return "launch", ["--help"]
     if choice in {"0", "m", "menu", "principal"}:
         return "main", None
-    if choice in {"q", "quit", "salir"}:
+    if choice in {"q", "quit", "exit", "salir"}:
         return "exit", None
     if choice == "":
         command = "inspect-merge"
     else:
         if not choice.isdigit():
-            raise ValueError("La herramienta de procesado debe elegirse por numero.")
+            raise ValueError("Select the processing tool by number.")
         index = int(choice)
         if index < 1 or index > len(MD_SUBCOMMANDS):
-            raise ValueError(f"La herramienta debe estar entre 1 y {len(MD_SUBCOMMANDS)}.")
+            raise ValueError(f"The tool must be between 1 and {len(MD_SUBCOMMANDS)}.")
         command, _description = MD_SUBCOMMANDS[index - 1]
 
     args = [command]
     if command == "split-nc":
-        nc_pattern = input("Patron de trayectorias NetCDF (Enter = QM_*.nc): ").strip() or "QM_*.nc"
-        skip_initial_ps = input("Ignorar frames iniciales antes de cuantos ps? (Enter = preguntar despues): ").strip()
-        count = input("Cantidad de rst7 a generar (Enter = preguntar despues de inspeccionar): ").strip()
+        nc_pattern = input("NetCDF trajectory pattern (Enter = QM_*.nc): ").strip() or "QM_*.nc"
+        skip_initial_ps = input("Skip initial frames before how many ps? (Enter = ask later): ").strip()
+        count = input("Number of rst7 files to generate (Enter = ask after inspection): ").strip()
         if nc_pattern != "QM_*.nc":
             args.extend(["--nc-pattern", nc_pattern])
         if skip_initial_ps:
@@ -259,19 +250,19 @@ def prompt_md_processing_choice() -> tuple[str, list[str] | None]:
                 if float(skip_initial_ps) < 0.0:
                     raise ValueError
             except ValueError as exc:
-                raise ValueError("El tiempo inicial a ignorar debe ser un numero >= 0.") from exc
+                raise ValueError("The initial time to skip must be a number >= 0.") from exc
             args.extend(["--skip-initial-ps", skip_initial_ps])
         if count:
             if not count.isdigit():
-                raise ValueError("La cantidad de rst7 debe ser un entero.")
+                raise ValueError("The number of rst7 files must be an integer.")
             args.extend(["--count", count])
     return "launch", args
 
 
 def prompt_md_continue() -> str:
     print()
-    choice = input("Enter = volver al panel de dinamicas; m = menu principal; q = salir: ").strip().lower()
-    if choice in {"q", "quit", "salir"}:
+    choice = input("Enter = return to the dynamics panel; m = main menu; q = exit: ").strip().lower()
+    if choice in {"q", "quit", "exit", "salir"}:
         return "exit"
     if choice in {"m", "menu", "principal", "0"}:
         return "main"
@@ -297,12 +288,12 @@ def run_md_processing_menu(tool: Tool, last_returncode: int = 0) -> tuple[int, b
 
 def launch_tool(tool: Tool, args: list[str]) -> int:
     if not tool.script.exists():
-        raise FileNotFoundError(f"No existe la rutina: {tool.script}")
+        raise FileNotFoundError(f"Tool script not found: {tool.script}")
 
     command = [sys.executable, str(tool.script), *args]
     print()
-    print(f"Abriendo: {tool.name}")
-    print(f"Comando: {' '.join(command)}")
+    print(f"Opening: {tool.name}")
+    print(f"Command: {' '.join(command)}")
     print()
     sys.stdout.flush()
     return subprocess.run(command, cwd=Path.cwd()).returncode
@@ -310,14 +301,22 @@ def launch_tool(tool: Tool, args: list[str]) -> int:
 
 def prompt_continue() -> bool:
     print()
-    choice = input("Enter = volver al menu principal; q = salir: ").strip().lower()
-    return choice not in {"q", "quit", "salir", "0"}
+    choice = input("Enter = return to the main menu; q = exit: ").strip().lower()
+    return choice not in {"q", "quit", "exit", "salir", "0"}
 
 
 def main() -> int:
     print_banner()
     try:
         if len(sys.argv) > 1:
+            if sys.argv[1] in {"-h", "--help", "help"}:
+                print("Usage: tolkien-tools [TOOL [ARGS...]]")
+                print("Run without arguments for the interactive menu.")
+                for index, tool in enumerate(TOOLS, 1):
+                    print(f"  {index}. {tool.name}: {tool.description}")
+                print("Aliases: md, td, charges, kinetics")
+                print("Use TOOL --help for module options; requirements for dependencies.")
+                return 0
             if is_requirements_choice(sys.argv[1]):
                 print_requirements_guide()
                 return 0

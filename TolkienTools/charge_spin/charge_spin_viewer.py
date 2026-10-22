@@ -174,7 +174,7 @@ def write_spin_localization_viewer(
     Write a py3Dmol-based HTML viewer highlighting localized-spin atoms.
     """
     comment, atoms = parse_first_xyz_frame(xyz_path)
-    title = f"{os.path.basename(xyz_path)} | XYZ first frame | indices 1-based"
+    title = f"{os.path.basename(xyz_path)} | XYZ first frame | 1-based indices"
     write_spin_localization_viewer_from_atoms(
         title,
         atoms,

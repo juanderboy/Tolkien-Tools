@@ -262,23 +262,23 @@ def export_result(result, output, plot=True):
 
 
 def interactive_records():
-    print('Columnas: T_K pH k; opcional cuarta columna sigma_log_k.')
-    print('Ejemplo: 298.15 7.4 0.0085. Punto decimal; k en s^-1. Enter termina.')
+    print('Columns: T_K pH k; optional fourth column sigma_log_k.')
+    print('Example: 298.15 7.4 0.0085. Use decimal points; k in s^-1. Enter = finish.')
     rows = []
     while True:
-        line = input(f'Medicion {len(rows)+1}: ').strip()
+        line = input(f'Measurement {len(rows)+1}: ').strip()
         if not line:
             break
         try:
             values = list(map(float, line.split()))
             if len(values) not in (3, 4):
-                raise ValueError('Ingresar tres o cuatro numeros.')
+                raise ValueError('Enter three or four numbers.')
             row = dict(id=str(len(rows)+1), T_K=values[0], pH=values[1], k=values[2],
                        sigma_log_k=values[3] if len(values)==4 else None)
             validate_records([row])
             rows.append(row)
         except ValueError as exc:
-            print(f'Entrada invalida: {exc}')
+            print(f'Invalid input: {exc}')
     return validate_records(rows)
 
 
@@ -296,13 +296,13 @@ def main(argv=None):
     try:
         if args.interactive:
             if not args.table:
-                source = input('Archivo CSV/TSV? Enter = ingresar mediciones a mano: ').strip()
+                source = input('CSV/TSV file? Enter = enter measurements manually: ').strip()
                 args.table = source or None
-            pka = input('pKa fijo a Tref? Enter = ajustarlo libre: ').strip()
+            pka = input('Fixed pKa at Tref? Enter = fit freely: ').strip()
             args.fixed_pka = float(pka) if pka else None
             ref = input('Tref (K)? Enter = 298.15: ').strip()
             args.reference = float(ref) if ref else 298.15
-            args.output = input('Carpeta de resultados? Enter = results_activation: ').strip() or 'results_activation'
+            args.output = input('Results directory? Enter = results_activation: ').strip() or 'results_activation'
         records = read_records(args.table) if args.table else interactive_records() if args.interactive else None
         if records is None:
             parser.error('Supply a table or use --interactive.')

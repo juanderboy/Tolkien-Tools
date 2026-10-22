@@ -58,9 +58,9 @@ class SelectedSnapshot:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         formatter_class=argparse.RawTextHelpFormatter,
-        description="Procesado general de dinamicas moleculares fragmentadas en carpetas numericas.",
+        description="Process fragmented molecular dynamics trajectories in numbered directories.",
         epilog=(
-            "Ejemplos:\n"
+            "Examples:\n"
             "  tolkien-tools md inspect-merge\n"
             "  tolkien-tools md inspect-merge --merge yes --exclude 2,5-7 --out qm_completo.xyz\n"
             "  tolkien-tools md geom --metric dFeN:distance:9,10\n"
@@ -72,58 +72,58 @@ def build_parser() -> argparse.ArgumentParser:
 
     inspect_p = subparsers.add_parser(
         "inspect-merge",
-        help="Inspecciona segmentos y puede mergear XYZ + cargas/spines",
+        help="Inspect segments and optionally merge XYZ and charge/spin data",
     )
     add_root_args(inspect_p)
     inspect_p.add_argument("--xyz-name", default="qm.xyz")
     inspect_p.add_argument("--input-name", default="d_QM.in")
-    inspect_p.add_argument("--out", default="qm_completo.xyz", help="XYZ combinado si se decide mergear")
+    inspect_p.add_argument("--out", default="qm_completo.xyz", help="Combined XYZ file if merging is selected")
     inspect_p.add_argument(
         "--merge",
         choices=["ask", "yes", "no"],
         default="ask",
-        help="Luego de inspeccionar: preguntar, mergear automaticamente o no mergear",
+        help="After inspection: ask, merge automatically, or do not merge",
     )
     inspect_p.add_argument(
         "--exclude",
         default="",
-        help="Segmentos a excluir del merge. Ej: 2,5-7",
+        help="Segments to exclude from merging, e.g. 2,5-7",
     )
     inspect_p.add_argument(
         "--exclude-frames",
         default="",
         help=(
-            "Frames dinamicos a excluir. Formato local SEG:FRAMES o global FRAMES, separado por ';'. "
-            "Ej: 7:754-810;8:30,35-40 o 5900-6288"
+            "Dynamic frames to exclude: local SEG:FRAMES or global FRAMES, separated by ';'. "
+            "E.g. 7:754-810;8:30,35-40 or 5900-6288"
         ),
     )
     inspect_p.add_argument(
         "--exclude-global-frames",
         default="",
         help=(
-            "Frames dinamicos globales a excluir sobre la trayectoria mergeada. "
-            "Ej: 7030 o 7030-7080,9000"
+            "Global dynamic frames to exclude from the merged trajectory. "
+            "E.g. 7030 or 7030-7080,9000"
         ),
     )
     inspect_p.add_argument(
         "--pop-sources",
         nargs="+",
         default=list(POPULATION_DEFAULTS),
-        help="Archivos de carga/spin a consolidar junto con el XYZ",
+        help="Charge/spin files to consolidate alongside the XYZ",
     )
-    inspect_p.add_argument("--pop-suffix", default="_full.dat", help="Sufijo de salida para cargas/spines consolidados")
-    inspect_p.add_argument("--no-pop", action="store_true", help="No consolidar cargas/spines al mergear")
+    inspect_p.add_argument("--pop-suffix", default="_full.dat", help="Output suffix for consolidated charge/spin files")
+    inspect_p.add_argument("--no-pop", action="store_true", help="Do not consolidate charge/spin data when merging")
     inspect_p.add_argument(
         "--prune-originals",
         action="store_true",
-        help="Reescribir qm.xyz y poblaciones originales removiendo los frames excluidos, con backups",
+        help="Rewrite original qm.xyz and population files without excluded frames, keeping backups",
     )
     inspect_p.add_argument(
         "--backup-suffix",
-        help="Sufijo para backups al usar --prune-originals. Default: .bak_frames_YYYYmmdd_HHMMSS",
+        help="Backup suffix for --prune-originals. Default: .bak_frames_YYYYmmdd_HHMMSS",
     )
 
-    merge_xyz_p = subparsers.add_parser("merge-xyz", help="Une qm.xyz de carpetas numericas")
+    merge_xyz_p = subparsers.add_parser("merge-xyz", help="Merge qm.xyz files from numbered directories")
     add_root_args(merge_xyz_p)
     merge_xyz_p.add_argument("--xyz-name", default="qm.xyz")
     merge_xyz_p.add_argument("--input-name", default="d_QM.in")
@@ -131,123 +131,123 @@ def build_parser() -> argparse.ArgumentParser:
     merge_xyz_p.add_argument(
         "--exclude-frames",
         default="",
-        help="Frames dinamicos a excluir. Local: 7:754-810; global: 5900-6288",
+        help="Dynamic frames to exclude. Local: 7:754-810; global: 5900-6288",
     )
     merge_xyz_p.add_argument(
         "--exclude-global-frames",
         default="",
-        help="Frames dinamicos globales a excluir sobre la trayectoria mergeada. Ej: 7030-7080",
+        help="Global dynamic frames to exclude from the merged trajectory. Ej: 7030-7080",
     )
 
-    geom_p = subparsers.add_parser("geom", help="Analiza distancias, angulos y dihedros en un XYZ multi-frame")
-    geom_p.add_argument("xyz", nargs="?", default="qm_completo.xyz", help="Archivo XYZ multi-frame (default: qm_completo.xyz)")
+    geom_p = subparsers.add_parser("geom", help="Analyze distances, angles and dihedrals in a multi-frame XYZ")
+    geom_p.add_argument("xyz", nargs="?", default="qm_completo.xyz", help="Multi-frame XYZ file (default: qm_completo.xyz)")
     geom_p.add_argument(
         "--metric",
         action="append",
         default=[],
-        help="Formato etiqueta:tipo:atomos. Ej: dFeN:distance:9,10 o FeOOP:heme_oop:auto",
+        help="Format label:type:atoms. E.g. dFeN:distance:9,10 or FeOOP:heme_oop:auto",
     )
-    geom_p.add_argument("--scatter", action="append", help="Par etiqueta_x,etiqueta_y. Puede repetirse")
-    geom_p.add_argument("--output", default="xyz_analysis", help="Prefijo de archivos de salida")
-    geom_p.add_argument("--no-plots", action="store_true", help="No generar PNG")
-    geom_p.add_argument("--no-viewer", action="store_true", help="No generar visor 3D HTML del XYZ")
-    geom_p.add_argument("--viewer-out", default="xyz_viewer.html", help="HTML de salida para inspeccion 3D")
-    geom_p.add_argument("--viewer-frame", type=int, default=1, help="Frame del XYZ para mostrar en el visor")
-    geom_p.add_argument("--viewer-labels", choices=["hover", "always"], default="always", help="Mostrar indices siempre o solo en hover")
-    geom_p.add_argument("--viewer-backend", choices=["py3dmol", "plotly", "auto"], default="py3dmol", help="Motor del visor 3D")
-    geom_p.add_argument("--no-open-viewer", action="store_true", help="No intentar abrir automaticamente el visor HTML")
+    geom_p.add_argument("--scatter", action="append", help="Pair x_label,y_label. May be repeated")
+    geom_p.add_argument("--output", default="xyz_analysis", help="Output file prefix")
+    geom_p.add_argument("--no-plots", action="store_true", help="Do not generate PNG files")
+    geom_p.add_argument("--no-viewer", action="store_true", help="Do not generate a 3D HTML viewer for the XYZ")
+    geom_p.add_argument("--viewer-out", default="xyz_viewer.html", help="Output HTML for 3D inspection")
+    geom_p.add_argument("--viewer-frame", type=int, default=1, help="XYZ frame to display in the viewer")
+    geom_p.add_argument("--viewer-labels", choices=["hover", "always"], default="always", help="Show atom indices always or only on hover")
+    geom_p.add_argument("--viewer-backend", choices=["py3dmol", "plotly", "auto"], default="py3dmol", help="3D viewer backend")
+    geom_p.add_argument("--no-open-viewer", action="store_true", help="Do not try to open the HTML viewer automatically")
 
     geom_compare_p = subparsers.add_parser(
         "geom-compare",
-        help="Compara histogramas de una metrica geometrica entre varias dinamicas",
+        help="Compare geometric metric histograms across trajectories",
     )
     add_root_args(geom_compare_p)
     geom_compare_p.add_argument(
         "dirs",
         nargs="*",
-        help="Carpetas de sistemas ya analizados con md geom. Si se omiten, se pregunta interactivamente.",
+        help="System directories already analyzed with md geom. Prompt interactively if omitted.",
     )
     geom_compare_p.add_argument(
         "--metric",
         dest="metric_label",
-        help="Etiqueta(s) a comparar, separadas por coma o espacios. Ej: dFeO o 'FeOOP,dFeN,dFeO'",
+        help="Metric labels to compare, separated by commas or spaces. E.g. dFeO or 'FeOOP,dFeN,dFeO'",
     )
     geom_compare_p.add_argument(
         "--metrics-file",
-        help="Nombre exacto del CSV de metricas dentro de cada carpeta. Default: autodetectar *_metrics.csv",
+        help="Exact metrics CSV filename within each directory. Default: auto-detect *_metrics.csv",
     )
-    geom_compare_p.add_argument("--output-dir", default="geom_global", help="Carpeta de salida para figura y CSVs")
-    geom_compare_p.add_argument("--out-prefix", default="geom_compare", help="Prefijo del PNG comparativo")
+    geom_compare_p.add_argument("--output-dir", default="geom_global", help="Output directory for figures and CSV files")
+    geom_compare_p.add_argument("--out-prefix", default="geom_compare", help="Comparison PNG prefix")
     geom_compare_p.add_argument(
         "--bins",
         help=(
-            "Binning del histograma: entero o fd, auto, sturges, sqrt, rice, doane, scott. "
-            "Si se omite en modo interactivo, se pregunta."
+            "Histogram binning: an integer or fd, auto, sturges, sqrt, rice, doane, scott. "
+            "Prompt if omitted in interactive mode."
         ),
     )
     geom_compare_p.add_argument(
         "--percentile",
         type=float,
         default=100.0,
-        help="Rango central a graficar para recortar outliers. Default: 100",
+        help="Central percentile range to plot, trimming outliers. Default: 100",
     )
-    geom_compare_p.add_argument("--no-kde", action="store_true", help="No dibujar curvas KDE sobre los histogramas")
+    geom_compare_p.add_argument("--no-kde", action="store_true", help="Do not overlay KDE curves on histograms")
     geom_compare_p.add_argument(
         "--kde-smooth",
         type=float,
         help=(
-            "Factor de suavizado KDE sobre el ancho de banda de Scott. "
-            "Mayor = menos rugosidad. Default interactivo: preguntar; no interactivo: 2.5"
+            "KDE smoothing factor applied to Scott bandwidth. "
+            "Higher = smoother. Interactive default: ask; noninteractive default: 2.5"
         ),
     )
     geom_compare_p.add_argument(
         "--kde-prominence",
         type=float,
         default=0.08,
-        help="Prominencia relativa minima para reportar modos KDE relevantes. Default: 0.08",
+        help="Minimum relative prominence for reporting KDE modes. Default: 0.08",
     )
     geom_compare_p.add_argument(
         "--paper-figure",
         choices=["ask", "yes", "no"],
         default="ask",
-        help="Generar tambien una figura limpia para editar en paper. Default: preguntar si es interactivo",
+        help="Also generate a clean figure for publication editing. Default: ask in interactive mode",
     )
 
-    split_p = subparsers.add_parser("split-nc", help="Inspecciona NetCDF fragmentados y extrae rst7 con cpptraj")
-    split_p.add_argument("prmtop", nargs="?", help="Topologia AMBER .prmtop; si se omite se busca automaticamente")
-    split_p.add_argument("nc_pattern", nargs="?", default="QM_*.nc", help="Patron de NetCDF dentro de carpetas numericas")
-    split_p.add_argument("frames", nargs="?", help="Modo legacy: all, N, A-B, N-end o lista separada por coma")
-    split_p.add_argument("--root", default=".", help="Carpeta raiz con subcarpetas numericas")
-    split_p.add_argument("--nc-pattern", dest="nc_pattern_option", help="Patron de NetCDF sin pasar prmtop posicional")
-    split_p.add_argument("--cpptraj", help="Ruta a cpptraj; si se omite se busca en PATH")
-    split_p.add_argument("--count", type=int, help="Cantidad de rst7 a extraer, distribuidos en toda la trayectoria")
+    split_p = subparsers.add_parser("split-nc", help="Inspect fragmented NetCDF trajectories and extract rst7 files with cpptraj")
+    split_p.add_argument("prmtop", nargs="?", help="AMBER .prmtop topology; auto-detect if omitted")
+    split_p.add_argument("nc_pattern", nargs="?", default="QM_*.nc", help="NetCDF pattern within numbered directories")
+    split_p.add_argument("frames", nargs="?", help="Legacy mode: all, N, A-B, N-end or a comma-separated list")
+    split_p.add_argument("--root", default=".", help="Root directory containing numbered subdirectories")
+    split_p.add_argument("--nc-pattern", dest="nc_pattern_option", help="NetCDF pattern without a positional prmtop argument")
+    split_p.add_argument("--cpptraj", help="Path to cpptraj; search PATH if omitted")
+    split_p.add_argument("--count", type=int, help="Number of rst7 files to extract across the entire trajectory")
     split_p.add_argument(
         "--skip-initial-ps",
         type=float,
-        help="Ignorar frames NC anteriores a este tiempo global en ps antes de muestrear",
+        help="Skip NC frames before this global time in ps before sampling",
     )
-    split_p.add_argument("--out-dir", default="restarts", help="Carpeta de salida para rst7 y prmtop")
-    split_p.add_argument("--out-prefix", default="QM", help="Prefijo de salida")
-    split_p.add_argument("--qm-xyz-out", default="qm_snapshots.xyz", help="XYZ QM de los snapshots elegidos dentro de out-dir")
-    split_p.add_argument("--no-qm-xyz", action="store_true", help="No generar XYZ QM de los snapshots elegidos")
+    split_p.add_argument("--out-dir", default="restarts", help="Output directory for rst7 and prmtop files")
+    split_p.add_argument("--out-prefix", default="QM", help="Output prefix")
+    split_p.add_argument("--qm-xyz-out", default="qm_snapshots.xyz", help="QM XYZ for selected snapshots inside out-dir")
+    split_p.add_argument("--no-qm-xyz", action="store_true", help="Do not generate QM XYZ for selected snapshots")
 
     return parser
 
 
 def add_root_args(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--root", default=".", help="Carpeta raiz de trabajo")
+    parser.add_argument("--root", default=".", help="Working root directory")
 
 
 def cmd_inspect_merge(args: argparse.Namespace) -> None:
     root = Path(args.root)
     segments = discover_segments(root, args.input_name)
     if not segments:
-        raise SystemExit(f"No se encontraron carpetas numericas en {root}")
+        raise SystemExit(f"No numbered directories found in {root}")
 
     print(f"Root: {root.resolve()}")
-    print(f"Segmentos detectados: {len(segments)}")
+    print(f"Detected segments: {len(segments)}")
     print()
-    print("seg  qm.xyz  frames  dt_ps      nstlim   planned_ps  real_ps    estado       archivos poblacion")
+    print("seg  qm.xyz  frames  dt_ps      nstlim   planned_ps  real_ps    status       population files")
 
     total_frames = 0
     total_real_ps = 0.0
@@ -264,7 +264,7 @@ def cmd_inspect_merge(args: argparse.Namespace) -> None:
             try:
                 _natoms, frames = xyz_summary(xyz_path)
                 frames = max(frames - 1, 0)
-                xyz_state = "si"
+                xyz_state = "yes"
                 frames_text = str(frames)
                 total_frames += frames
             except ValueError as exc:
@@ -289,14 +289,14 @@ def cmd_inspect_merge(args: argparse.Namespace) -> None:
         )
 
     print()
-    print(f"Frames XYZ totales detectados: {total_frames}")
+    print(f"Total detected XYZ frames: {total_frames}")
     if real_segments:
-        print(f"Tiempo real desde frames XYZ (ps): {total_real_ps:.9f}")
+        print(f"Actual duration from XYZ frames (ps): {total_real_ps:.9f}")
     if planned_segments:
-        print(f"Tiempo planeado desde d_QM.in (ps): {total_planned_ps:.9f}")
+        print(f"Planned duration from d_QM.in (ps): {total_planned_ps:.9f}")
     if mismatched_segments:
         text = ", ".join(str(index) for index in mismatched_segments)
-        print(f"Segmentos donde frames XYZ != nstlim: {text}")
+        print(f"Segments where XYZ frames != nstlim: {text}")
 
     maybe_merge_after_inspect_merge(args, segments)
 
@@ -315,29 +315,29 @@ def maybe_merge_after_inspect_merge(args: argparse.Namespace, segments) -> None:
     should_merge = args.merge == "yes"
     if args.merge == "ask":
         print()
-        print("Merge de XYZ inspeccionados")
-        print("  Enter/n = no mergear")
-        print("  a       = mergear todos los segmentos disponibles")
-        print("  e       = mergear excluyendo segmentos")
-        print("  f       = mergear excluyendo frames especificos")
-        choice = input("Que queres hacer? [n/a/e/f]: ").strip().lower()
+        print("Merge inspected XYZ trajectories")
+        print("  Enter/n = do not merge")
+        print("  a       = merge all available segments")
+        print("  e       = merge excluding segments")
+        print("  f       = merge excluding specific frames")
+        choice = input("What would you like to do? [n/a/e/f]: ").strip().lower()
         if choice in {"", "n", "no"}:
             return
         if choice in {"a", "all", "t", "todos", "s", "si", "sí", "y", "yes"}:
             should_merge = True
         elif choice in {"e", "exclude", "excluir"}:
-            text = input("Segmentos a excluir (ej: 2,5-7): ").strip()
+            text = input("Segments to exclude (e.g. 2,5-7): ").strip()
             exclude_indexes = parse_segment_selection(text)
             should_merge = True
         elif choice in {"f", "frames"}:
-            text = input("Frames a excluir (global 5900-6288 o por segmento 7:754-810;8:30,35-40): ").strip()
+            text = input("Frames to exclude (global 5900-6288 or by segment 7:754-810;8:30,35-40): ").strip()
             local_frame_exclusions, global_frame_exclusions = parse_frame_exclusion_inputs(text, "")
-            prune_choice = input("Podar tambien los archivos originales con backup? [n/s]: ").strip().lower()
+            prune_choice = input("Also prune the original files, keeping backups? [y/N]: ").strip().lower()
             if prune_choice in {"s", "si", "sí", "y", "yes"}:
                 args.prune_originals = True
             should_merge = True
         else:
-            raise SystemExit(f"Opcion invalida para merge: {choice}")
+            raise SystemExit(f"Invalid merge option: {choice}")
 
     if should_merge:
         selected_segments = [segment for segment in segments if segment.index not in exclude_indexes]
@@ -354,7 +354,7 @@ def maybe_merge_after_inspect_merge(args: argparse.Namespace, segments) -> None:
         )
         processed, frames, total_ps = merge_segment_xyz(selected_segments, args.xyz_name, Path(args.out), frame_filter.keep)
         if frames == 0:
-            raise SystemExit("No se proceso ningun frame. Revisar nombres de archivos y segmentos.")
+            raise SystemExit("No frames processed. Check filenames and segments.")
         print()
         print(f"Segmentos mergeados: {processed}")
         if exclude_indexes:
@@ -362,8 +362,8 @@ def maybe_merge_after_inspect_merge(args: argparse.Namespace, segments) -> None:
         if frame_filter.excluded_count:
             print(f"Frames excluidos: {frame_filter.excluded_count}")
             print(f"Detalle frames excluidos: {frame_filter.describe()}")
-        print(f"Frames totales: {frames}")
-        print(f"Tiempo total (ps): {total_ps:.9f}")
+        print(f"Total frames: {frames}")
+        print(f"Total duration (ps): {total_ps:.9f}")
         print(f"XYZ combinado: {args.out}")
         if not args.no_pop:
             merge_populations_after_inspect_merge(
@@ -589,7 +589,7 @@ def cmd_merge_xyz(args: argparse.Namespace) -> None:
     root = Path(args.root)
     segments = discover_segments(root, args.input_name)
     if not segments:
-        raise SystemExit(f"No se encontraron carpetas numericas en {root}")
+        raise SystemExit(f"No numbered directories found in {root}")
     frame_filter = build_frame_filter(
         segments,
         args.xyz_name,
@@ -597,13 +597,13 @@ def cmd_merge_xyz(args: argparse.Namespace) -> None:
     )
     processed, frames, total_ps = merge_segment_xyz(segments, args.xyz_name, Path(args.out), frame_filter.keep)
     if frames == 0:
-        raise SystemExit("No se proceso ningun frame. Revisar nombres de archivos y segmentos.")
+        raise SystemExit("No frames processed. Check filenames and segments.")
     print(f"Segmentos procesados: {processed}")
     if frame_filter.excluded_count:
         print(f"Frames excluidos: {frame_filter.excluded_count}")
         print(f"Detalle frames excluidos: {frame_filter.describe()}")
-    print(f"Frames totales: {frames}")
-    print(f"Tiempo total (ps): {total_ps:.9f}")
+    print(f"Total frames: {frames}")
+    print(f"Total duration (ps): {total_ps:.9f}")
     print(f"XYZ combinado: {args.out}")
 
 
@@ -618,12 +618,12 @@ def cmd_geom(args: argparse.Namespace) -> None:
                 labels=args.viewer_labels,
                 backend=args.viewer_backend,
             )
-            print(f"Visor 3D para elegir atomos: {viewer_path.resolve()}")
+            print(f"3D viewer for atom selection: {viewer_path.resolve()}")
             if not args.no_open_viewer:
                 open_viewer_in_browser(viewer_path)
-            print("Usar el visor para rotar la molecula e inspeccionar indices atomicos.")
+            print("Use the viewer to rotate the molecule and inspect atom indices.")
         except RuntimeError as exc:
-            print(f"[WARN] No se genero visor 3D: {exc}")
+            print(f"[WARN] No 3D viewer generated: {exc}")
 
     metrics_were_prompted = False
     metric_texts = list(args.metric)
@@ -643,7 +643,7 @@ def cmd_geom_compare(args: argparse.Namespace) -> None:
     root = Path(args.root)
     system_dirs = resolve_geom_compare_dirs(root, args.dirs, args.metrics_file)
     if not system_dirs:
-        raise SystemExit("No se eligio ninguna carpeta para comparar.")
+        raise SystemExit("No directory selected for comparison.")
 
     label_map = collect_metric_label_map(system_dirs, args.metrics_file)
     metric_labels = resolve_geom_compare_metric_labels(args.metric_label, label_map, len(system_dirs))
@@ -661,11 +661,11 @@ def cmd_geom_compare(args: argparse.Namespace) -> None:
     for metric_label in metric_labels:
         series, missing = collect_geom_metric_series(system_dirs, metric_label, args.metrics_file)
         if missing:
-            print("[WARN] Carpetas sin datos para la metrica pedida:")
+            print("[WARN] Directories without data for the requested metric:")
             for system_dir, label in missing:
                 print(f"  {system_dir}: {label}")
         if not series:
-            print(f"[WARN] No se encontraron valores para la metrica {metric_label!r}; se omite.")
+            print(f"[WARN] No values found for metric {metric_label!r}; skipping.")
             continue
 
         figure_path = output_dir / f"{args.out_prefix}_{safe_token(metric_label)}_histograms.png"
@@ -698,21 +698,21 @@ def cmd_geom_compare(args: argparse.Namespace) -> None:
             )
 
         print()
-        print(f"Metrica comparada: {metric_label}")
+        print(f"Compared metric: {metric_label}")
         print("Sistemas incluidos:")
         for item in series:
-            print(f"  {item.system_name}: {len(item.values)} valores desde {item.metrics_file}")
+            print(f"  {item.system_name}: {len(item.values)} values from {item.metrics_file}")
         print(f"Figura comparativa: {figure_path}")
         if make_paper_figure:
             print(f"Figura paper editable: {paper_figure_path}")
-        print(f"Valores usados: {values_path}")
-        print(f"Resumen estadistico: {summary_path}")
+        print(f"Values used: {values_path}")
+        print(f"Statistical summary: {summary_path}")
         if not args.no_kde:
             print(f"Modos KDE relevantes: {modes_path}")
         generated_any = True
 
     if not generated_any:
-        raise SystemExit("No se pudo generar ninguna comparacion con las metricas seleccionadas.")
+        raise SystemExit("No comparisons could be generated for the selected metrics.")
 
 
 def resolve_geom_compare_dirs(root: Path, dir_args: Sequence[str], metrics_file: str | None) -> list[Path]:
@@ -723,15 +723,15 @@ def resolve_geom_compare_dirs(root: Path, dir_args: Sequence[str], metrics_file:
             if not path.is_absolute():
                 path = root / path
             if not path.is_dir():
-                raise SystemExit(f"No existe la carpeta de sistema: {path}")
+                raise SystemExit(f"System directory not found: {path}")
             dirs.append(path)
         return dirs
 
     candidates = discover_geom_analysis_dirs(root, metrics_file)
     if not candidates:
         raise SystemExit(
-            f"No encontre analisis geom previos en subcarpetas de {root}. "
-            "Esperaba archivos *_metrics.csv generados por 'tolkien-tools md geom'."
+            f"No previous geometry analyses found in subdirectories of {root}. "
+            "Expected *_metrics.csv files generated by 'tolkien-tools md geom'."
         )
     if not sys.stdin.isatty():
         return candidates
@@ -740,12 +740,12 @@ def resolve_geom_compare_dirs(root: Path, dir_args: Sequence[str], metrics_file:
 
 def prompt_geom_compare_dirs(candidates: Sequence[Path]) -> list[Path]:
     print()
-    print("Carpetas con analisis geom detectadas:")
+    print("Directories with geometry analyses:")
     for index, path in enumerate(candidates, start=1):
         print(f"  {index}. {path.name}")
     print()
-    print("Elegir carpetas a comparar con numeros separados por coma, rangos, o Enter para usar todas.")
-    text = input("Carpetas: ").strip()
+    print("Select directories using comma-separated numbers or ranges, or press Enter to use all.")
+    text = input("Directories: ").strip()
     if not text:
         return list(candidates)
     indexes = parse_number_selection(text, len(candidates))
@@ -755,7 +755,7 @@ def prompt_geom_compare_dirs(candidates: Sequence[Path]) -> list[Path]:
 def prompt_geom_compare_metric(label_map: dict[str, list[Path]], total_systems: int) -> str:
     labels = prompt_geom_compare_metrics(label_map, total_systems)
     if len(labels) != 1:
-        raise SystemExit("Seleccion multiple inesperada.")
+        raise SystemExit("Unexpected multiple selection.")
     return labels[0]
 
 
@@ -771,48 +771,48 @@ def resolve_geom_compare_metric_labels(
 
 def prompt_geom_compare_metrics(label_map: dict[str, list[Path]], total_systems: int) -> list[str]:
     if not label_map:
-        raise SystemExit("No encontre metricas disponibles en los CSV seleccionados.")
+        raise SystemExit("No metrics found in the selected CSV files.")
     common_labels = [label for label, dirs in label_map.items() if len(dirs) == total_systems]
     labels = sorted(common_labels or label_map)
     print()
     if common_labels:
-        print("Metricas disponibles en todas las carpetas elegidas:")
+        print("Metrics available in all selected directories:")
     else:
-        print("No hay metricas comunes a todas las carpetas. Metricas detectadas:")
+        print("No metrics are shared by all directories. Detected metrics:")
     for index, label in enumerate(labels, start=1):
         count = len(label_map[label])
-        suffix = "" if count == total_systems else f" ({count}/{total_systems} carpetas)"
+        suffix = "" if count == total_systems else f" ({count}/{total_systems} directories)"
         print(f"  {index}. {label}{suffix}")
     incomplete_labels = [label for label in sorted(label_map) if label not in set(common_labels)]
     if common_labels and incomplete_labels:
         print()
-        print("Metricas detectadas pero no presentes en todas las carpetas:")
+        print("Detected metrics missing from some directories:")
         for label in incomplete_labels:
             dirs = ", ".join(path.name for path in label_map[label])
-            print(f"  {label}: {len(label_map[label])}/{total_systems} carpetas ({dirs})")
+            print(f"  {label}: {len(label_map[label])}/{total_systems} directories ({dirs})")
     print()
-    text = input("Parametro/metrica a comparar (numero, nombre o lista separada por coma): ").strip()
+    text = input("Metric to compare (number, name or comma-separated list): ").strip()
     if not text:
-        raise SystemExit("No se eligio ninguna metrica.")
+        raise SystemExit("No metric selected.")
     return parse_geom_compare_metric_selection(text, labels, label_map)
 
 
 def parse_geom_compare_metric_selection(text: str, prompt_labels: Sequence[str], label_map: dict[str, list[Path]]) -> list[str]:
     tokens = [token.strip() for token in re.split(r"[,\s]+", text.strip()) if token.strip()]
     if not tokens:
-        raise SystemExit("No se eligio ninguna metrica.")
+        raise SystemExit("No metric selected.")
     selected: list[str] = []
     for token in tokens:
         if token.isdigit():
             index = int(token)
             if index < 1 or index > len(prompt_labels):
-                raise SystemExit(f"Opcion invalida: {token}")
+                raise SystemExit(f"Invalid option: {token}")
             label = prompt_labels[index - 1]
         else:
             matches = [label for label in label_map if label.lower() == token.lower()]
             if not matches:
                 available = ", ".join(prompt_labels)
-                raise SystemExit(f"Metrica desconocida {token!r}. Disponibles: {available}")
+                raise SystemExit(f"Unknown metric {token!r}. Available: {available}")
             label = matches[0]
         if label not in selected:
             selected.append(label)
@@ -832,13 +832,13 @@ def resolve_geom_compare_bins(bins_text: str | None) -> str | int:
 
 def prompt_geom_compare_bins() -> str | int:
     print()
-    print("Binning para los histogramas globales:")
-    print("  1. Automatico (Freedman-Diaconis)")
-    print("  2. Automatico (numpy auto)")
-    print("  3. Automatico (Sturges)")
-    print("  4. Cantidad fija de bins")
+    print("Binning for global histograms:")
+    print("  1. Automatic (Freedman-Diaconis)")
+    print("  2. Automatic (numpy auto)")
+    print("  3. Automatic (Sturges)")
+    print("  4. Fixed number of bins")
     print()
-    choice = input("Elegir binning [1]: ").strip().lower()
+    choice = input("Choose binning [1]: ").strip().lower()
     if choice in {"", "1", "fd", "freedman", "freedman-diaconis"}:
         return "fd"
     if choice in {"2", "auto"}:
@@ -846,15 +846,15 @@ def prompt_geom_compare_bins() -> str | int:
     if choice in {"3", "sturges"}:
         return "sturges"
     if choice in {"4", "fixed", "fijo", "bins"}:
-        text = input("Cantidad de bins: ").strip()
+        text = input("Number of bins: ").strip()
         try:
             bins_spec = parse_bins_spec(text)
         except ValueError as exc:
             raise SystemExit(str(exc)) from exc
         if not isinstance(bins_spec, int):
-            raise SystemExit("Para cantidad fija, ingresar un numero entero.")
+            raise SystemExit("Enter an integer for a fixed bin count.")
         return bins_spec
-    raise SystemExit(f"Opcion de binning invalida: {choice}")
+    raise SystemExit(f"Invalid binning option: {choice}")
 
 
 def resolve_geom_compare_kde_smooth(kde_smooth: float | None, no_kde: bool) -> float:
@@ -871,13 +871,13 @@ def resolve_geom_compare_kde_smooth(kde_smooth: float | None, no_kde: bool) -> f
 
 def prompt_geom_compare_kde_smooth() -> float:
     print()
-    print("Suavizado de curvas KDE:")
-    print("  1. Suave recomendado (2.5)")
-    print("  2. Medio (1.5)")
-    print("  3. Fuerte (4.0)")
+    print("KDE curve smoothing:")
+    print("  1. Recommended smoothing (2.5)")
+    print("  2. Moderate (1.5)")
+    print("  3. Strong (4.0)")
     print("  4. Custom")
     print()
-    choice = input("Elegir suavizado KDE [1]: ").strip().lower()
+    choice = input("Choose KDE smoothing [1]: ").strip().lower()
     if choice in {"", "1", "suave", "recomendado"}:
         return 2.5
     if choice in {"2", "medio"}:
@@ -885,15 +885,15 @@ def prompt_geom_compare_kde_smooth() -> float:
     if choice in {"3", "fuerte"}:
         return 4.0
     if choice in {"4", "custom", "personalizado"}:
-        text = input("Factor KDE (>0; mayor = mas suave): ").strip()
+        text = input("KDE factor (>0; higher = smoother): ").strip()
         try:
             value = float(text)
         except ValueError as exc:
-            raise SystemExit(f"Factor KDE invalido: {text}") from exc
+            raise SystemExit(f"Invalid KDE factor: {text}") from exc
         if value <= 0.0:
-            raise SystemExit("El factor KDE debe ser > 0.")
+            raise SystemExit("The KDE factor must be > 0.")
         return value
-    raise SystemExit(f"Opcion de suavizado KDE invalida: {choice}")
+    raise SystemExit(f"Invalid KDE smoothing option: {choice}")
 
 
 def resolve_geom_compare_paper_figure(choice: str) -> bool:
@@ -908,7 +908,7 @@ def resolve_geom_compare_paper_figure(choice: str) -> bool:
 
 def prompt_geom_compare_paper_figure() -> bool:
     print()
-    text = input("Queres figura de paper sin leyendas ni etiquetas de ejes? [n/s]: ").strip().lower()
+    text = input("Generate a publication figure without legends or axis labels? [y/N]: ").strip().lower()
     return text in {"s", "si", "sí", "y", "yes"}
 
 
@@ -921,50 +921,50 @@ def parse_number_selection(text: str, max_index: int) -> list[int]:
         if "-" in token:
             left, right = token.split("-", 1)
             if not left.isdigit() or not right.isdigit():
-                raise SystemExit(f"Seleccion invalida: {token}")
+                raise SystemExit(f"Invalid selection: {token}")
             start = int(left)
             end = int(right)
             if start > end:
-                raise SystemExit(f"Rango invalido: {token}")
+                raise SystemExit(f"Invalid range: {token}")
             indexes = range(start, end + 1)
         else:
             if not token.isdigit():
-                raise SystemExit(f"Seleccion invalida: {token}")
+                raise SystemExit(f"Invalid selection: {token}")
             indexes = [int(token)]
         for index in indexes:
             if index < 1 or index > max_index:
-                raise SystemExit(f"Opcion fuera de rango: {index}")
+                raise SystemExit(f"Option out of range: {index}")
             if index not in selected:
                 selected.append(index)
     if not selected:
-        raise SystemExit("No se eligio ninguna carpeta.")
+        raise SystemExit("No directory selected.")
     return selected
 
 
 def prompt_metric_specs() -> list[str]:
     print()
-    print("Definir parametros geometricos. Formato: etiqueta:tipo:atomos")
-    print("Tipos: distance, angle, dihedral, heme_oop")
-    print("Ejemplos:")
+    print("Define geometric metrics. Format: label:type:atoms")
+    print("Types: distance, angle, dihedral, heme_oop")
+    print("Examples:")
     print("  dFeN:distance:9,10")
     print("  ang:angle:9,10,11")
     print("  dih:dihedral:1,2,3,4")
     print("  FeOOP:heme_oop:auto")
-    print("Defina todas las metricas que quiera seguir. Cuando termine, apriete Enter sin escribir nada para avanzar.")
+    print("Define all metrics to track. Press Enter on an empty line when finished.")
     metrics: list[str] = []
     while True:
-        text = input(f"Metrica {len(metrics) + 1} a seguir: ").strip()
+        text = input(f"Metric {len(metrics) + 1} to track: ").strip()
         if not text:
             break
         try:
             parse_metric_spec(text)
         except ValueError as exc:
-            print(f"Sintaxis incorrecta: {exc}")
-            print("Proba de nuevo. Ejemplo valido: dFeN:distance:9,10")
+            print(f"Invalid syntax: {exc}")
+            print("Try again. Valid example: dFeN:distance:9,10")
             continue
         metrics.append(text)
     if not metrics:
-        raise SystemExit("No se definio ninguna metrica geometrica.")
+        raise SystemExit("No geometric metric defined.")
     return metrics
 
 
@@ -973,26 +973,26 @@ def prompt_scatter_pairs(specs) -> list[str]:
         return []
 
     print()
-    print("Metricas definidas:")
+    print("Defined metrics:")
     for spec in specs:
         print(f"  {spec.label}: {spec.kind}({','.join(map(str, spec.atoms))})")
     print()
-    print("Opcional: definir plots cruzados de dispersion entre metricas.")
-    print("Formato: etiqueta_x,etiqueta_y")
-    print("Ejemplo: dFeN,dFeO")
-    print("Deje vacio para no generar plots cruzados.")
+    print("Optional: define scatter plots between metrics.")
+    print("Format: x_label,y_label")
+    print("Example: dFeN,dFeO")
+    print("Leave blank to skip scatter plots.")
 
     pairs: list[str] = []
     while True:
-        text = input(f"Plot cruzado {len(pairs) + 1}: ").strip()
+        text = input(f"Scatter plot {len(pairs) + 1}: ").strip()
         if not text:
             break
         # Validate as the user enters the pair, so typos fail early.
         try:
             parse_scatter_pairs([text], specs)
         except ValueError as exc:
-            print(f"Sintaxis incorrecta: {exc}")
-            print("Proba de nuevo. Ejemplo valido: dFeN,dFeO")
+            print(f"Invalid syntax: {exc}")
+            print("Try again. Valid example: dFeN,dFeO")
             continue
         pairs.append(text)
     return pairs
@@ -1001,16 +1001,16 @@ def prompt_scatter_pairs(specs) -> list[str]:
 def open_viewer_in_browser(viewer_path: Path) -> None:
     open_status = open_html_in_browser(viewer_path)
     if open_status == "html":
-        print("Visor 3D abierto en el navegador.")
+        print("3D viewer opened in the browser.")
     elif open_status == "folder":
         print(
-            "[WARN] No pude abrir automaticamente el visor HTML. "
-            "Se abrio la carpeta de trabajo con explorer.exe ."
+            "[WARN] Could not open the HTML viewer automatically. "
+            "Opened the working directory with explorer.exe ."
         )
     else:
         print(
-            "[WARN] No pude abrir automaticamente el navegador ni la carpeta. "
-            "Abrir manualmente el HTML indicado arriba."
+            "[WARN] Could not open the browser or directory automatically. "
+            "Open the HTML file listed above manually."
         )
 
 
@@ -1095,11 +1095,11 @@ def merge_populations_after_inspect_merge(
 ) -> None:
     existing_sources = [source for source in sources if any((segment.path / source).exists() for segment in segments)]
     if not existing_sources:
-        print("Cargas/spines: no se encontraron archivos para consolidar en los segmentos mergeados.")
+        print("Charge/spin data: no files to consolidate in the merged segments.")
         return
 
     print()
-    print("Consolidando cargas/spines con la misma seleccion/exclusion del XYZ:")
+    print("Consolidating charge/spin data using the XYZ selections and exclusions:")
     merge_population_sources(segments, existing_sources, out_dir, suffix, frame_filter)
 
 
@@ -1109,9 +1109,9 @@ def merge_population_sources(segments, sources: list[str], out_dir: Path, suffix
         output = out_dir / f"{source}{suffix}"
         segment_count, block_count = merge_population_source(segments, source, output, frame_filter)
         if segment_count:
-            print(f"{source}: {segment_count} segmentos, {block_count} bloques -> {output}")
+            print(f"{source}: {segment_count} segments, {block_count} blocks -> {output}")
         else:
-            print(f"{source}: no encontrado")
+            print(f"{source}: not found")
 
 
 def merge_population_source(segments, source: str, output: Path, frame_filter: FrameFilter) -> tuple[int, int]:
@@ -1126,13 +1126,13 @@ def merge_population_source(segments, source: str, output: Path, frame_filter: F
             expected_blocks = frame_filter.expected_kept_frames(segment.index)
             if available_blocks != frame_filter.dynamic_frames_by_segment.get(segment.index, 0):
                 print(
-                    f"[WARN] {source}: segmento {segment.index} tiene {available_blocks} bloques dinamicos "
-                    f"pero el XYZ tiene {frame_filter.dynamic_frames_by_segment.get(segment.index, 0)} frames dinamicos."
+                    f"[WARN] {source}: segment {segment.index} has {available_blocks} dynamic blocks "
+                    f"but the XYZ has {frame_filter.dynamic_frames_by_segment.get(segment.index, 0)} dynamic frames."
                 )
             if wrote_blocks != expected_blocks:
                 print(
-                    f"[WARN] {source}: segmento {segment.index} escribio {wrote_blocks} bloques "
-                    f"pero se esperaban {expected_blocks} segun el filtro del XYZ."
+                    f"[WARN] {source}: segment {segment.index} wrote {wrote_blocks} blocks "
+                    f"but {expected_blocks} were expected from the XYZ filter."
                 )
             if wrote_blocks:
                 segment_count += 1
@@ -1171,12 +1171,12 @@ def prune_original_segment_files(
 ) -> None:
     if frame_filter.excluded_count == 0:
         print()
-        print("Podado de originales: no hay frames excluidos para remover.")
+        print("Original-file pruning: no excluded frames to remove.")
         return
 
     suffix = backup_suffix or f".bak_frames_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     print()
-    print("Podando archivos originales con backups:")
+    print("Pruning original files with backups:")
     for segment in segments:
         excluded_frames = frame_filter.excluded_by_segment.get(segment.index, set())
         if not excluded_frames:
@@ -1185,7 +1185,7 @@ def prune_original_segment_files(
         xyz_path = segment.path / xyz_name
         if xyz_path.exists():
             removed, remaining, backup = prune_original_xyz(xyz_path, segment.index, frame_filter, suffix)
-            print(f"{xyz_path}: removidos {removed} frames, quedan {remaining}; backup {backup}")
+            print(f"{xyz_path}: removed {removed} frames, {remaining} remain; backup {backup}")
 
         for source in sources:
             pop_path = segment.path / source
@@ -1196,15 +1196,15 @@ def prune_original_segment_files(
             if removed != len(excluded_frames):
                 missing = sorted(frame for frame in excluded_frames if frame > available)
                 print(
-                    f"[WARN] {pop_path}: se pidio remover {len(excluded_frames)} bloques, "
-                    f"pero solo existen {available} bloques dinamicos; fuera de rango: {format_frame_ranges(set(missing))}."
+                    f"[WARN] {pop_path}: requested removal of {len(excluded_frames)} blocks, "
+                    f"but only {available} dynamic blocks exist; out of range: {format_frame_ranges(set(missing))}."
                 )
             if removed != expected_removed:
                 print(
-                    f"[WARN] {pop_path}: removidos {removed} bloques, "
-                    f"se esperaban {expected_removed} segun bloques disponibles."
+                    f"[WARN] {pop_path}: removed {removed} blocks, "
+                    f"expected {expected_removed} based on available blocks."
                 )
-            print(f"{pop_path}: removidos {removed} bloques, quedan {remaining}; backup {backup}")
+            print(f"{pop_path}: removed {removed} blocks, {remaining} remain; backup {backup}")
 
 
 def prune_original_xyz(path: Path, segment_index: int, frame_filter: FrameFilter, backup_suffix: str) -> tuple[int, int, Path]:
@@ -1338,7 +1338,7 @@ def cmd_split_nc(args: argparse.Namespace) -> None:
 
     trajectories = discover_nc_trajectories(root, nc_pattern, cpptraj, prmtop)
     if not trajectories:
-        raise SystemExit(f"No se encontraron archivos {nc_pattern!r} en carpetas numericas de {root}")
+        raise SystemExit(f"No se encontraron archivos {nc_pattern!r} en directories numericas de {root}")
 
     print_nc_summary(root, prmtop, trajectories)
     total_frames = sum(item.frames for item in trajectories)
@@ -1352,7 +1352,7 @@ def cmd_split_nc(args: argparse.Namespace) -> None:
         )
     if skip_initial_ps > 0.0:
         print(
-            f"Frames elegibles desde {skip_initial_ps:.9g} ps: "
+            f"Eligible frames from {skip_initial_ps:.9g} ps: "
             f"{len(eligible_snapshots)} de {total_frames}"
         )
 
@@ -1372,10 +1372,10 @@ def cmd_split_nc(args: argparse.Namespace) -> None:
         qm_xyz_path = out_dir / args.qm_xyz_out
         write_qm_snapshot_xyz(qm_xyz_path, selected_snapshots, qm_xyz_frames)
     print()
-    print(f"Listo. Se generaron {count} archivos {args.out_prefix}_*.rst7 en {out_dir}.")
-    print(f"Topologia copiada: {out_dir / prmtop.name}")
+    print(f"Done. Generated {count} {args.out_prefix}_*.rst7 files in {out_dir}.")
+    print(f"Topology copied: {out_dir / prmtop.name}")
     if not args.no_qm_xyz:
-        print(f"XYZ QM de snapshots: {out_dir / args.qm_xyz_out}")
+        print(f"Snapshot QM XYZ: {out_dir / args.qm_xyz_out}")
 
 
 def resolve_cpptraj(explicit: str | None) -> str | None:
@@ -1401,17 +1401,17 @@ def resolve_prmtop(root: Path, explicit: str | None) -> Path:
     if not prmtops:
         raise SystemExit(f"No se encontraron archivos .prmtop en {root}")
     if len(prmtops) == 1:
-        print(f"Topologia detectada: {prmtops[0]}")
+        print(f"Detected topology: {prmtops[0]}")
         return prmtops[0]
     if not sys.stdin.isatty():
         names = ", ".join(path.name for path in prmtops)
         raise SystemExit(f"Hay mas de un .prmtop en {root}: {names}. Pasar el archivo a usar.")
 
-    print("Los prmtop presentes son:")
+    print("Available prmtop files:")
     for idx, path in enumerate(prmtops, start=1):
         print(f"  {idx}. {path.name}")
     while True:
-        text = input("Escriba el nombre o numero del archivo de topologia a usar: ").strip()
+        text = input("Enter the name or number of the topology file to use: ").strip()
         if text.isdigit():
             index = int(text)
             if 1 <= index <= len(prmtops):
@@ -1419,7 +1419,7 @@ def resolve_prmtop(root: Path, explicit: str | None) -> Path:
         for path in prmtops:
             if text == path.name or text == str(path):
                 return path
-        print("Seleccion invalida.")
+        print("Invalid selection.")
 
 
 def cmd_split_nc_legacy(args: argparse.Namespace, cpptraj: str, prmtop: Path, nc_pattern: str) -> None:
@@ -1456,7 +1456,7 @@ def cmd_split_nc_legacy(args: argparse.Namespace, cpptraj: str, prmtop: Path, nc
             raise SystemExit(f"cpptraj genero {len(generated)} frames, pero se esperaban {len(labels)}.")
         for label, frame_path in zip(labels, generated):
             shutil.move(str(frame_path), f"{args.out_prefix}_{label}.rst7")
-    print(f"Listo. Se generaron {len(labels)} archivos {args.out_prefix}_*.rst7.")
+    print(f"Done. Generated {len(labels)} {args.out_prefix}_*.rst7 files.")
 
 
 def discover_nc_trajectories(root: Path, nc_pattern: str, cpptraj: str, prmtop: Path) -> list[NcTrajectory]:
@@ -1492,9 +1492,9 @@ def discover_nc_trajectories(root: Path, nc_pattern: str, cpptraj: str, prmtop: 
 
 def print_nc_summary(root: Path, prmtop: Path, trajectories: list[NcTrajectory]) -> None:
     print(f"Root: {root.resolve()}")
-    print(f"Topologia: {prmtop}")
+    print(f"Topology: {prmtop}")
     print()
-    print("seg  archivo nc                           frames   ntwx   dt_nc_ps   ultimo frame QM")
+    print("seg  NC file                              frames   ntwx   dt_nc_ps   last QM frame")
     for item in trajectories:
         rel = item.path
         try:
@@ -1506,8 +1506,8 @@ def print_nc_summary(root: Path, prmtop: Path, trajectories: list[NcTrajectory])
             f"{item.dt_ps * item.ntwx:>9.6g}  {item.frames * item.ntwx:>15}"
         )
     print()
-    print(f"Archivos NC detectados: {len(trajectories)}")
-    print(f"Frames totales: {sum(item.frames for item in trajectories)}")
+    print(f"Detected NC files: {len(trajectories)}")
+    print(f"Total frames: {sum(item.frames for item in trajectories)}")
 
 
 def parse_amber_int_param(path: Path, name: str) -> int | None:
@@ -1522,10 +1522,10 @@ def prompt_restart_count(total_frames: int) -> int:
     if not sys.stdin.isatty():
         raise SystemExit("Para uso no interactivo hay que pasar --count N.")
     while True:
-        text = input(f"Cuantos rst7 queres generar? [1-{total_frames}]: ").strip()
+        text = input(f"How many rst7 files should be generated? [1-{total_frames}]: ").strip()
         if text.isdigit():
             return int(text)
-        print("Ingrese un numero entero.")
+        print("Enter an integer.")
 
 
 def resolve_skip_initial_ps(value: float | None) -> float:
@@ -1535,7 +1535,7 @@ def resolve_skip_initial_ps(value: float | None) -> float:
         return value
     if not sys.stdin.isatty():
         return 0.0
-    text = input("Ignorar frames iniciales antes de cuantos ps? (Enter = 0): ").strip()
+    text = input("Skip initial frames before how many ps? (Enter = 0): ").strip()
     if not text:
         return 0.0
     try:
@@ -1543,7 +1543,7 @@ def resolve_skip_initial_ps(value: float | None) -> float:
     except ValueError as exc:
         raise SystemExit(f"Valor invalido para ps iniciales: {text}") from exc
     if parsed < 0.0:
-        raise SystemExit("El tiempo inicial a ignorar debe ser >= 0.")
+        raise SystemExit("The initial time to skip must be >= 0.")
     return parsed
 
 

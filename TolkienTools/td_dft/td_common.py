@@ -53,22 +53,22 @@ def parse_selection_string(sel, n_files):
                 a = int(a_str)
                 b = int(b_str)
             except ValueError:
-                raise ValueError(f"Rango inválido: '{part}'")
+                raise ValueError(f"Invalid range: '{part}'")
             if a < 1 or b < 1 or a > n_files or b > n_files or a > b:
-                raise ValueError(f"Rango fuera de límites: '{part}' (1..{n_files})")
+                raise ValueError(f"Range out of bounds: '{part}' (1..{n_files})")
             for k in range(a, b + 1):
                 indices.add(k - 1)  # 0-based
         else:
             try:
                 k = int(part)
             except ValueError:
-                raise ValueError(f"Índice inválido: '{part}'")
+                raise ValueError(f"Invalid index: '{part}'")
             if k < 1 or k > n_files:
-                raise ValueError(f"Índice fuera de límites: '{part}' (1..{n_files})")
+                raise ValueError(f"Index out of bounds: '{part}' (1..{n_files})")
             indices.add(k - 1)
 
     if not indices:
-        raise ValueError("No se seleccionó ningún índice válido.")
+        raise ValueError("No valid index selected.")
     return sorted(indices)
 
 
@@ -105,10 +105,10 @@ def parse_number_ranges(list_str, flag_name="--exclude"):
                 a = int(a_str)
                 b = int(b_str)
             except ValueError:
-                print(f"Advertencia: valor de {flag_name} ignorado: '{p}' (rango inválido)")
+                print(f"Warning: ignored {flag_name} value: '{p}' (invalid range)")
                 continue
             if a > b:
-                print(f"Advertencia: valor de {flag_name} ignorado: '{p}' (rango inválido)")
+                print(f"Warning: ignored {flag_name} value: '{p}' (invalid range)")
                 continue
             for k in range(a, b + 1):
                 nums.add(k)

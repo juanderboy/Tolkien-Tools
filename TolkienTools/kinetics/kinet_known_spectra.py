@@ -58,7 +58,7 @@ def _read_header_labels(path: Path) -> tuple[str, ...]:
                     return tuple(field.upper() for field in fields[1:])
                 continue
             break
-    raise ValueError(f"{path}: no entiendo el formato del archivo. revisarlo")
+    raise ValueError(f"{path}: unrecognized file format; check the input file")
 
 
 def read_known_spectrum_file(path: Path) -> tuple[np.ndarray, dict[str, np.ndarray]]:
@@ -68,7 +68,7 @@ def read_known_spectrum_file(path: Path) -> tuple[np.ndarray, dict[str, np.ndarr
         data = np.loadtxt(path, comments="#")
     except ValueError as exc:
         raise ValueError(
-            f"{path}: no entiendo el formato del archivo. revisarlo"
+            f"{path}: unrecognized file format; check the input file"
         ) from exc
     if data.ndim == 1:
         data = data[None, :]

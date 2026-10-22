@@ -65,5 +65,5 @@ def parse_orca_tddft_eV_fosc(filename):
     if not found_uv_section:
         print(f"'{spec_start}' no encontrado en '{filename}'")
     if len(energies) == 0:
-        print(f"No se encontraron transiciones en '{filename}'")
+        print(f"No transitions found in '{filename}'")
     return np.array(energies), np.array(foscs)

@@ -9,25 +9,25 @@ import numpy as np
 
 
 GENERAL_MODEL_LABELS = {
-    "a_to_b": "A -> B irreversible de primer orden",
-    "a_to_b_to_c": "A -> B -> C irreversible consecutivo",
+    "a_to_b": "A -> B irreversible first-order reaction",
+    "a_to_b_to_c": "A -> B -> C consecutive irreversible reactions",
     "a_rev_b_to_c": "A <-> B -> C",
 }
 
 SPECIAL_MODEL_LABELS = {
     "mbfe3_hss_no_binding": (
-        "reduccion de MbFe(III) por HSS- sin binding en la ventana ajustada"
+        "MbFe(III) reduction by HSS- without binding in the fitted window"
     ),
-    "mbfe3_sulfide_autocatalytic": "reduccion autocatalitica de MbFe(III) por sulfuros",
+    "mbfe3_sulfide_autocatalytic": "Autocatalytic MbFe(III) reduction by sulfides",
     "mbfe3_sulfide_binding_autocatalytic": (
-        "reduccion autocatalitica de MbFe(III) por sulfuros con binding reversible"
+        "Autocatalytic MbFe(III) reduction by sulfides with reversible binding"
     ),
     "mbfe3_sulfide_hss_transsulfuration": (
-        "reduccion de MbFe(III)-HS por HSS- agregado con transsulfuracion"
+        "MbFe(III)-HS reduction by added HSS- with transsulfuration"
     ),
     "mbfe3_sulfide_hss_transsulfuration_no_auto": (
-        "reduccion de MbFe(III)-HS por HSS- agregado con transsulfuracion "
-        "sin autocatalisis"
+        "MbFe(III)-HS reduction by added HSS- with transsulfuration "
+        "without autocatalysis"
     ),
 }
 
@@ -77,10 +77,10 @@ MODEL_PRESENTATIONS = {
             "[B](t) = c0 - [A](t)",
         ),
         "parameters": (
-            "k: constante de velocidad de primer orden",
+            "k: first-order rate constant",
         ),
         "notes": (
-            "Se ajustan simultaneamente los espectros puros de A y B.",
+            "The pure spectra of A and B are fitted simultaneously.",
         ),
     },
     "a_to_b_to_c": {
@@ -91,11 +91,11 @@ MODEL_PRESENTATIONS = {
             "[C](t) = c0 - [A](t) - [B](t)",
         ),
         "parameters": (
-            "k1: constante de velocidad para A -> B",
-            "k2: constante de velocidad para B -> C",
+            "k1: rate constant for A -> B",
+            "k2: rate constant for B -> C",
         ),
         "notes": (
-            "Si k1 y k2 coinciden, se usa el limite analitico correspondiente.",
+            "If k1 and k2 coincide, the corresponding analytical limit is used.",
         ),
     },
     "a_rev_b_to_c": {
@@ -106,12 +106,12 @@ MODEL_PRESENTATIONS = {
             "d[C]/dt = k2*[B]",
         ),
         "parameters": (
-            "k1: constante de velocidad para A -> B",
-            "k-1: constante de velocidad para B -> A",
-            "k2: constante de velocidad para B -> C",
+            "k1: rate constant for A -> B",
+            "k-1: rate constant for B -> A",
+            "k2: rate constant for B -> C",
         ),
         "notes": (
-            "Los perfiles temporales se calculan resolviendo el sistema lineal.",
+            "Time profiles are calculated by solving the linear system.",
         ),
     },
     "mbfe3_hss_no_binding": {
@@ -121,19 +121,19 @@ MODEL_PRESENTATIONS = {
             "[MbFeII](t) = c0 - [MbFeIII-HSS](t)",
         ),
         "parameters": (
-            "k: constante aparente de primer orden para MbFeIII-HSS -> MbFeII",
+            "k: apparent first-order rate constant for MbFeIII-HSS -> MbFeII",
         ),
         "notes": (
-            "El binding rapido de HSS- queda fuera de la ventana ajustada.",
+            "Fast HSS- binding lies outside the fitted window.",
             (
-                "El tiempo cero se estima ajustando el decaimiento rapido "
-                "de MbFeIII a 409 nm; 428 y 434 nm se muestran como control."
+                "Time zero is estimated by fitting the fast decay "
+                "of MbFeIII at 409 nm; 428 and 434 nm are shown as controls."
             ),
-            "No se incluye ningun proceso autocatalitico.",
+            "No autocatalytic process is included.",
         ),
     },
     "mbfe3_sulfide_autocatalytic": {
-        "scheme": "MbFeIII-SH -> MbFeII, con aceleracion autocatalitica aparente",
+        "scheme": "MbFeIII-SH -> MbFeII, with apparent autocatalytic acceleration",
         "profiles": (
             "x(t) = [MbFeII](t) / [Mb]total",
             "dx/dt = (k_slow + k_auto*x) * (1 - x)",
@@ -141,20 +141,20 @@ MODEL_PRESENTATIONS = {
             "[MbFeII](t) = c0 * x",
         ),
         "parameters": (
-            "k_slow,obs: constante aparente de la fase lenta inicial",
-            "k_auto: aceleracion fenomenologica aparente",
+            "k_slow,obs: apparent rate constant of the initial slow phase",
+            "k_auto: apparent phenomenological acceleration",
         ),
         "notes": (
-            "El ajuste usa todos los tiempos y dos especies absorbentes.",
-            "x actua como proxy de especies reactivas de azufre no observadas.",
-            "La dependencia de k_slow,obs con [HS-] debe determinarse experimentalmente.",
-            "k_auto no debe interpretarse directamente como k_Red(HSS-).",
+            "The fit uses all times and two absorbing species.",
+            "x is a proxy for unobserved reactive sulfur species.",
+            "The dependence of k_slow,obs on [HS-] must be determined experimentally.",
+            "k_auto must not be interpreted directly as k_Red(HSS-).",
         ),
     },
     "mbfe3_sulfide_binding_autocatalytic": {
         "scheme": (
             "MbFeIII + HS- <-> MbFeIII-HS -> MbFeII, "
-            "con aceleracion autocatalitica aparente"
+            "with apparent autocatalytic acceleration"
         ),
         "profiles": (
             (
@@ -170,32 +170,32 @@ MODEL_PRESENTATIONS = {
         ),
         "parameters": (
             (
-                "k_on: constante aparente de coordinacion por HS- "
-                "bajo las condiciones del experimento"
+                "k_on: apparent HS- coordination rate constant "
+                "under the experimental conditions"
             ),
-            "k_off: constante de disociacion de MbFeIII-HS",
-            "k_slow,obs: constante aparente de reduccion lenta del complejo MbFeIII-HS",
-            "k_cat: aceleracion autocatalitica fenomenologica aparente",
+            "k_off: MbFeIII-HS dissociation rate constant",
+            "k_slow,obs: apparent slow reduction rate constant of MbFeIII-HS",
+            "k_cat: apparent phenomenological autocatalytic acceleration",
         ),
         "notes": (
-            "El ajuste usa tres especies absorbentes: MbFeIII, MbFeIII-HS y MbFeII.",
+            "The fit uses three absorbing species: MbFeIII, MbFeIII-HS and MbFeII.",
             (
-                "Si [HS-] se mantiene en exceso, k_on corresponde al k_on "
-                "bimolecular multiplicado por [HS-]."
+                "If [HS-] remains in excess, k_on corresponds to the bimolecular k_on "
+                "multiplied by [HS-]."
             ),
-            "x actua como proxy de especies reactivas de azufre no observadas.",
-            "k_cat no debe interpretarse directamente como k_Red(HSS-).",
+            "x is a proxy for unobserved reactive sulfur species.",
+            "k_cat must not be interpreted directly as k_Red(HSS-).",
         ),
     },
     "mbfe3_sulfide_hss_transsulfuration": {
         "scheme": (
             "MbFeIII-HS + HSS- -> MbFeIII-HSS -> MbFeII, "
-            "sobre la reduccion autocatalitica por sulfuros"
+            "alongside autocatalytic reduction by sulfides"
         ),
         "profiles": (
             "A = [MbFeIII-HS]",
             "B = [MbFeIII-HSS]",
-            "S = [HSS-] libre agregado efectivo",
+            "S = effective free added [HSS-]",
             "x(t) = [MbFeII](t) / [Mb]total",
             "dA/dt = -(k_slow + k_auto*x)*A - k_ts*A*S",
             "dB/dt = k_ts*A*S - k_fast*B",
@@ -204,27 +204,27 @@ MODEL_PRESENTATIONS = {
             "[MbFeIII-Sx](t) = A + B",
         ),
         "parameters": (
-            "k_slow,obs: constante aparente de reduccion lenta por HS-",
-            "k_auto: aceleracion fenomenologica por polisulfuros endogenos",
-            "k_ts: transsulfuracion bimolecular por HSS- agregado",
-            "k_fast: reduccion rapida del intermedio MbFeIII-HSS",
+            "k_slow,obs: apparent slow reduction rate constant with HS-",
+            "k_auto: phenomenological acceleration by endogenous polysulfides",
+            "k_ts: bimolecular transsulfuration by added HSS-",
+            "k_fast: fast reduction of the MbFeIII-HSS intermediate",
         ),
         "notes": (
-            "El ajuste usa dos especies absorbentes: MbFeIII-Sx y MbFeII.",
-            "MbFeIII-HS y MbFeIII-HSS se distinguen cineticamente pero comparten espectro.",
-            "La concentracion inicial de HSS- agregado se fija como R_HSS*c0.",
-            "La produccion endogena de especies tipo polisulfuro queda en el termino k_auto*x.",
+            "The fit uses two absorbing species: MbFeIII-Sx and MbFeII.",
+            "MbFeIII-HS and MbFeIII-HSS are kinetically distinct but share a spectrum.",
+            "The initial added HSS- concentration is fixed at R_HSS*c0.",
+            "Endogenous polysulfide-like species production is represented by k_auto*x.",
         ),
     },
     "mbfe3_sulfide_hss_transsulfuration_no_auto": {
         "scheme": (
             "MbFeIII-HS + HSS- -> MbFeIII-HSS -> MbFeII, "
-            "en paralelo con la reduccion lenta de MbFeIII-HS"
+            "in parallel with slow MbFeIII-HS reduction"
         ),
         "profiles": (
             "A = [MbFeIII-HS]",
             "B = [MbFeIII-HSS]",
-            "S = [HSS-] libre agregado efectivo",
+            "S = effective free added [HSS-]",
             "dA/dt = -k_slow*A - k_ts*A*S",
             "dB/dt = k_ts*A*S - k_fast*B",
             "d[MbFeII]/dt = k_slow*A + k_fast*B",
@@ -232,15 +232,15 @@ MODEL_PRESENTATIONS = {
             "[MbFeIII-Sx](t) = A + B",
         ),
         "parameters": (
-            "k_slow,obs: constante aparente de reduccion lenta de MbFeIII-HS",
-            "k_ts: transsulfuracion bimolecular por HSS- agregado",
-            "k_fast: reduccion rapida del intermedio MbFeIII-HSS",
+            "k_slow,obs: apparent slow MbFeIII-HS reduction rate constant",
+            "k_ts: bimolecular transsulfuration by added HSS-",
+            "k_fast: fast reduction of the MbFeIII-HSS intermediate",
         ),
         "notes": (
-            "El ajuste usa dos especies absorbentes: MbFeIII-Sx y MbFeII.",
-            "MbFeIII-HS y MbFeIII-HSS se distinguen cineticamente pero comparten espectro.",
-            "La concentracion inicial de HSS- agregado se fija como R_HSS*c0.",
-            "No incluye aceleracion autocatalitica por polisulfuros endogenos.",
+            "The fit uses two absorbing species: MbFeIII-Sx and MbFeII.",
+            "MbFeIII-HS and MbFeIII-HSS are kinetically distinct but share a spectrum.",
+            "The initial added HSS- concentration is fixed at R_HSS*c0.",
+            "No autocatalytic acceleration by endogenous polysulfides is included.",
         ),
     },
 }

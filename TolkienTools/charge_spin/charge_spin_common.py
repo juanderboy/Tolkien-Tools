@@ -55,13 +55,13 @@ def find_first_existing_file(candidates):
 
 
 def print_lio_merge_pop_hint(kind):
-    print(f"Falta el archivo consolidado de {kind}.")
-    print("Puede construirlo yendo al modulo 1 de Tolkien Tools: Molecular dynamics processing.")
-    print("Desde la carpeta raiz de la dinamica fragmentada, use:")
+    print(f"The consolidated {kind} file is missing.")
+    print("Generate it with Tolkien Tools module 1: Molecular dynamics processing.")
+    print("From the root directory of the fragmented trajectory, run:")
     print("  tolkien-tools 1")
-    print("  elegir: inspect-merge")
-    print("  aceptar el merge de XYZ/cargas-spines")
-    print("Tambien puede correrlo directo con:")
+    print("  choose: inspect-merge")
+    print("  accept merging of XYZ and charge/spin data")
+    print("Or run directly with:")
     print("  tolkien-tools md inspect-merge --merge yes")
 
 

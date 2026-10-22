@@ -58,7 +58,7 @@ def process_folder(folder, args):
     """
 
     if not os.path.isdir(folder):
-        print(f"ERROR: '{folder}' no es una carpeta válida.")
+        print(f"ERROR: '{folder}' is not a valid directory.")
         sys.exit(1)
 
     td_files_all = sorted(
@@ -66,13 +66,13 @@ def process_folder(folder, args):
         key=td_file_sort_key,
     )
     if not td_files_all:
-        print(f"No se encontraron archivos 'TD_*.out' en '{folder}'.")
-        print("Por favor, recuerde que los archivos de salida de ORCA deben "
-              "estar guardados como TD_*.out")
+        print(f"No 'TD_*.out' files found in '{folder}'.")
+        print("ORCA output files must "
+              "be named TD_*.out")
         sys.exit(1)
 
     n_total = len(td_files_all)
-    print(f"Se encontraron {n_total} archivos TD_*.out en '{folder}':")
+    print(f"Found {n_total} TD_*.out files in '{folder}':")
     for i, f in enumerate(td_files_all, start=1):
         print(f"  {i:2d}: {os.path.basename(f)}")
 
@@ -82,7 +82,7 @@ def process_folder(folder, args):
     try:
         idx_list = parse_selection_string(sel_str, n_total)
     except ValueError as e:
-        print(f"Error en la selección: {e}")
+        print(f"Selection error: {e}")
         sys.exit(1)
 
     # aplicar la selección
@@ -92,7 +92,7 @@ def process_folder(folder, args):
     exclude_ids = parse_number_ranges(args.exclude, flag_name="--exclude")
 
     if exclude_ids:
-        print(f"\nSe excluirán los TD con números: {', '.join(str(n) for n in sorted(exclude_ids))}")
+        print(f"\nExcluding TD numbers: {', '.join(str(n) for n in sorted(exclude_ids))}")
 
     # filtrar td_files_sel según exclude_ids
     td_files = []
@@ -100,15 +100,15 @@ def process_folder(folder, args):
         base = os.path.basename(f)
         match = re.search(r"TD_(\d+)", base)
         if match and int(match.group(1)) in exclude_ids:
-            print(f"  Excluyendo {base} por --exclude")
+            print(f"  Excluding {base} via --exclude")
             continue
         td_files.append(f)
 
     if not td_files:
-        print("Después de aplicar la selección y --exclude no quedó ningún archivo.")
+        print("No files remain after selection and --exclude.")
         sys.exit(1)
 
-    print(f"\nSe usarán {len(td_files)} archivos TD_*.out:")
+    print(f"\nUsing {len(td_files)} TD_*.out files:")
     for f in td_files:
         print(f"  {os.path.basename(f)}")
 
@@ -180,12 +180,12 @@ def process_folder(folder, args):
             if x_use.size == 0:
                 if mode == "lambda":
                     print(
-                        f"  Aviso: {base} no tiene puntos en el rango "
-                        f"{x_min:.1f}-{x_max:.1f} nm; se omite en el merge."
+                        f"  Warning: {base} has no points in the range "
+                        f"{x_min:.1f}-{x_max:.1f} nm; skipping in the merge."
                     )
                 else:
                     print(
-                        f"  Aviso: {base} no tiene puntos en el rango de energía "
+                        f"  Warning: {base} has no points in the range de energía "
                         f"seleccionado; se omite en el merge."
                     )
                 continue
@@ -260,21 +260,21 @@ def process_folder(folder, args):
 
                 out_png = td_file + "-nea-eps.png"
                 fig.savefig(out_png, dpi=300)
-                print(f"Espectro guardado en: {out_png}")
+                print(f"Spectrum saved to: {out_png}")
 
                 plt.close(fig)
 
         except Exception:
             print(
-                f"  Aviso: no pude leer la información del archivo {base}. "
+                f"  Warning: could not read file {base}. "
                 "Se omite."
             )
             continue
 
     if not all_spectra:
         print(
-            "\nNingún TD_*.out aportó puntos en el rango seleccionado "
-            "o todos fallaron al leerse. Revisá -x0/-x1 o los archivos."
+            "\nNo TD_*.out files contributed points in the selected range "
+            "or all files failed to load. Check -x0/-x1 and the input files."
         )
         sys.exit(1)
 
@@ -301,7 +301,7 @@ def process_folder(folder, args):
 
         data = np.column_stack([x_common, eps_interp])
         np.savetxt(out_dat, data, header=header)
-        print(f"Datos exportados en: {out_dat}")
+        print(f"Data exported to: {out_dat}")
 
     eps_matrix = np.array(eps_matrix)
     n_files = eps_matrix.shape[0]
@@ -312,36 +312,36 @@ def process_folder(folder, args):
             x_min_range, x_max_range = args.maxrange
         else:
             x_min_in = input(
-                f"Ingrese XMIN para buscar máximos ({'nm' if mode == 'lambda' else 'eV'}) "
-                "[Enter = sin límite inferior]: "
+                f"Enter XMIN for peak searching ({'nm' if mode == 'lambda' else 'eV'}) "
+                "[Enter = no lower limit]: "
             ).strip()
             x_max_in = input(
-                f"Ingrese XMAX para buscar máximos ({'nm' if mode == 'lambda' else 'eV'}) "
-                "[Enter = sin límite superior]: "
+                f"Enter XMAX for peak searching ({'nm' if mode == 'lambda' else 'eV'}) "
+                "[Enter = no upper limit]: "
             ).strip()
             x_min_range = float(x_min_in) if x_min_in else float(x_common.min())
             x_max_range = float(x_max_in) if x_max_in else float(x_common.max())
         if x_min_range >= x_max_range:
-            print("ERROR: --maxrange requiere XMIN < XMAX.")
+            print("ERROR: --maxrange requires XMIN < XMAX.")
             sys.exit(1)
 
         if args.maxeps is not None:
             eps_threshold = args.maxeps
         else:
             eps_in = input(
-                "Ingrese umbral mínimo de epsilon [Enter = sin umbral]: "
+                "Enter minimum epsilon threshold [Enter = no threshold]: "
             ).strip()
             eps_threshold = float(eps_in) if eps_in else 0.0
         if eps_threshold < 0:
-            print("ERROR: el umbral de epsilon debe ser >= 0.")
+            print("ERROR: epsilon threshold must be >= 0.")
             sys.exit(1)
 
         if args.maxonly and args.allpeaks:
-            print("ERROR: --maxonly y --allpeaks son excluyentes.")
+            print("ERROR: --maxonly and --allpeaks are mutually exclusive.")
             sys.exit(1)
         if args.maxonly is None and args.allpeaks is None:
             choice = input(
-                "¿Listar solo el máximo absoluto por espectro? [s/N]: "
+                "List only the absolute maximum of each spectrum? [y/N]: "
             ).strip().lower()
             max_only = choice in ("s", "si", "sí", "y", "yes")
         else:
@@ -350,8 +350,8 @@ def process_folder(folder, args):
         mask = (x_common >= x_min_range) & (x_common <= x_max_range)
         if not np.any(mask):
             print(
-                "Aviso: el rango indicado para --maxrange no intersecta "
-                "el eje x. Se generará un CSV vacío."
+                "Warning: the --maxrange interval does not overlap "
+                "the x axis. An empty CSV will be generated."
             )
 
         if mode == "lambda":
@@ -395,7 +395,7 @@ def process_folder(folder, args):
                     row.extend([""] * (len(header) - len(row)))
                 writer.writerow(row)
 
-        print(f"Máximos individuales guardados en: {out_csv}")
+        print(f"Individual peaks saved to: {out_csv}")
 
     # sumas acumuladas
     cum_sums = np.cumsum(eps_matrix, axis=0)
@@ -419,7 +419,7 @@ def process_folder(folder, args):
     out_array = np.column_stack(out_cols)
     header = "\t".join(header_cols)
     np.savetxt(out_file, out_array, header=header)
-    print(f"\nArchivo de salida guardado como: {out_file}")
+    print(f"\nOutput file saved as: {out_file}")
 
     # ===== espectro_final.dat = promedio del último sumado =====
     final_sum = cum_sums[-1]            # suma de todos los espectros seleccionados
@@ -434,13 +434,13 @@ def process_folder(folder, args):
 
     final_data = np.column_stack([x_common, final_avg])
     np.savetxt(final_file, final_data, header=final_header)
-    print(f"Espectro promedio guardado como: {final_file}")
+    print(f"Average spectrum saved as: {final_file}")
 
     if args.html:
         try:
             import plotly.graph_objects as go
         except Exception:
-            print("Aviso: no pude importar plotly. Instalá con: pip install plotly")
+            print("Warning: could not import plotly. Install with: pip install plotly")
         else:
             if mode == "lambda":
                 x_title = "Wavelength (nm)"
@@ -953,11 +953,11 @@ def process_folder(folder, args):
 
             open_status = open_html_in_browser(html_path)
             if open_status == "html":
-                print("HTML abierto automáticamente en el navegador.")
+                print("HTML opened automatically in the browser.")
             elif open_status == "folder":
                 print(
-                    "Aviso: no pude abrir el HTML automáticamente. "
-                    "Se abrió la carpeta con explorer.exe ."
+                    "Warning: could not open HTML automatically. "
+                    "Opened its directory with explorer.exe ."
                 )
             else:
-                print("Aviso: no pude abrir ni el HTML ni la carpeta automáticamente.")
+                print("Warning: could not open the HTML or its directory automatically.")

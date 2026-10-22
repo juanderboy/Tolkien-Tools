@@ -1,270 +1,188 @@
 # Molecular Dynamics Processing
 
-Herramientas para reconstruir y analizar dinamicas moleculares fragmentadas en
-subcarpetas numericas (`1/`, `2/`, `3/`, ...).
-
-Uso desde el menu maestro:
+Rebuild and analyze molecular dynamics runs fragmented across numbered
+subdirectories (`1/`, `2/`, `3/`, ...).
 
 ```bash
 tolkien-tools 1
 tolkien-tools md
+tolkien-tools md --help
 ```
 
-Subcomandos principales:
+The expected QMMM/MD layout has a root directory with numbered segments
+containing files such as `qm.xyz`, `d_QM.in`, `mulliken`, `mulliken_spin`,
+`lowdin`, `lowdin_spin` and `QM_*.nc`.
+
+## Inspecting and merging trajectories
 
 ```bash
 tolkien-tools md inspect-merge
 tolkien-tools md inspect-merge --merge yes --out qm_completo.xyz
 tolkien-tools md inspect-merge --merge yes --exclude 2,5-7 --out qm_completo.xyz
-tolkien-tools md geom
-tolkien-tools md geom qm_completo.xyz --metric dFeN:distance:9,10
-tolkien-tools md geom qm_completo.xyz --metric FeOOP:heme_oop:auto
-tolkien-tools md geom-compare sistemaA sistemaB sistemaC --metric dFeO
-tolkien-tools md split-nc
-tolkien-tools md split-nc --count 100
-```
-
-La rama asume el formato habitual de corridas QMMM/MD fragmentadas: una carpeta
-raiz con segmentos numericos, cada uno con archivos como `qm.xyz`, `d_QM.in`,
-`mulliken`, `mulliken_spin`, `lowdin`, `lowdin_spin` y trayectorias `QM_*.nc`.
-
-Para tiempos de dinamica, `d_QM.in` se usa para leer el `dt`; el `nstlim` queda
-como referencia del tiempo planeado. Los tiempos reales se calculan a partir de
-la cantidad de frames efectivamente presentes en `qm.xyz`, de modo que segmentos
-cortados antes de tiempo no inflen la duracion total.
-
-`inspect-merge` muestra el panel de segmentos y, si se corre desde una terminal
-interactiva, ofrece mergear el XYZ y consolidar cargas/spines inmediatamente.
-Se puede mergear todo o excluir segmentos concretos con listas/rangos como
-`2,5-7`. Para scripts o uso no interactivo:
-
-```bash
-tolkien-tools md inspect-merge --merge yes --exclude 2,5-7 --out qm_completo.xyz
 tolkien-tools md inspect-merge --merge no
 ```
 
-Tambien se pueden excluir frames dinamicos concretos sin descartar el segmento
-completo. Los indices son 1-based y se cuentan despues de descartar el primer
-bloque inicial de cada `qm.xyz`, igual que en el merge normal. Para excluir
-frames locales dentro de segmentos:
+`inspect-merge` displays the segment panel and, in an interactive terminal,
+offers to merge XYZ coordinates and charge/spin data immediately. Entire
+segments can be excluded using lists and ranges such as `2,5-7`.
+
+Time steps are read from `d_QM.in`; `nstlim` is retained as the planned run
+length. Actual durations use the number of frames present in `qm.xyz`, so
+truncated segments do not inflate total duration.
+
+Individual dynamic frames can also be excluded without dropping a whole
+segment. Indices are 1-based after discarding the initial coordinate block
+from each `qm.xyz`, as in the normal merge. Local segment exclusions:
 
 ```bash
 tolkien-tools md inspect-merge --merge yes --exclude-frames '7:754-810;8:30,35-40'
 ```
 
-Para excluir frames globales sobre la trayectoria concatenada mergeable:
+Global exclusions refer to the concatenated mergeable trajectory:
 
 ```bash
 tolkien-tools md inspect-merge --merge yes --exclude-global-frames 7030-7080,9000
-```
-
-Tambien se puede escribir el rango global directamente en `--exclude-frames` si
-no lleva prefijo de segmento:
-
-```bash
 tolkien-tools md inspect-merge --merge yes --exclude-frames 5900-6288
 ```
 
-Las dos formas se pueden combinar entre si y tambien con `--exclude` para
-descartar segmentos completos.
-
-Si se quiere dejar las carpetas originales ya podadas para reprocesar despues
-sin repetir las exclusiones, usar `--prune-originals`. Esto reescribe los
-`qm.xyz` y archivos de poblacion de los segmentos afectados, conservando backups
-con sufijo `.bak_frames_YYYYmmdd_HHMMSS`:
+Local and global exclusions can be combined with each other and `--exclude`.
+To prune original segment files for later processing without repeating the
+exclusions, use `--prune-originals`. This rewrites affected `qm.xyz` and
+population files while keeping `.bak_frames_YYYYmmdd_HHMMSS` backups:
 
 ```bash
 tolkien-tools md inspect-merge --merge yes --exclude-frames '7:754-810' --prune-originals
+tolkien-tools md inspect-merge --merge yes --exclude-frames '7:754-810' --prune-originals --backup-suffix .bak_before_pruning
 ```
 
-Para elegir un sufijo fijo de backup:
-
-```bash
-tolkien-tools md inspect-merge --merge yes --exclude-frames '7:754-810' --prune-originals --backup-suffix .bak_antes_poda
-```
-
-Cuando `inspect-merge` mergea el XYZ, tambien busca `mulliken`,
-`mulliken_spin`, `lowdin` y `lowdin_spin` en los mismos segmentos seleccionados
-y genera los consolidados correspondientes (`*_full.dat`) junto al XYZ
-combinado. Las exclusiones indicadas para las geometrías se aplican igual a
-cargas/spines. Si solo se quiere el XYZ:
+XYZ merging also consolidates `mulliken`, `mulliken_spin`, `lowdin` and
+`lowdin_spin` from the same selected segments into `*_full.dat` files.
+Geometry exclusions apply equally to populations. To merge only XYZ:
 
 ```bash
 tolkien-tools md inspect-merge --merge yes --exclude 2,5-7 --no-pop
 ```
 
-El subcomando `merge-xyz` sigue disponible como atajo compatible con versiones
-anteriores, pero el flujo recomendado es inspeccionar y decidir el merge desde
-`inspect-merge`.
-
-Al procesar los `qm.xyz` segmentados, Tolkien Tools descarta siempre el primer
-bloque de coordenadas de cada segmento y cuenta la dinamica desde el segundo.
-`merge-xyz` tampoco incluye esos bloques iniciales en el XYZ consolidado.
-
-El mismo criterio se aplica a los bloques segmentados de poblaciones
-electronicas: `inspect-merge` descarta el primer bloque de cada segmento antes
-de escribir los consolidados. Genera archivos compatibles con el modo LIO de la
-rama de analisis de cargas y spines:
+`merge-xyz` remains available for compatibility; the recommended flow starts
+with `inspect-merge`. Both discard the first coordinate block of every
+segment and count dynamics from the second block. Population consolidation
+also discards the first block of each segment:
 
 - `mulliken` -> `mulliken_full.dat`
 - `mulliken_spin` -> `mulliken_spin_full.dat`
 
-Esto permite correr despues `tolkien-tools 3` en modo LIO sobre la misma carpeta
-de salida.
+The resulting files can be analyzed with `tolkien-tools 3` in LIO mode.
 
-`split-nc` busca automaticamente el `.prmtop` en la carpeta raiz y los NetCDF
-en subcarpetas numericas (`1/`, `2/`, ...). Si hay mas de una topologia,
-pregunta cual usar. Luego cuenta frames por archivo `.nc`, muestra el total y
-pregunta cuantos `rst7` generar. Los snapshots se distribuyen a lo largo de toda
-la trayectoria concatenada y se escriben en `restarts/` como `QM_1.rst7`,
-`QM_2.rst7`, etc.; tambien copia ahi el `.prmtop`.
-
-Antes de elegir los snapshots, `split-nc` puede descartar un tramo inicial de la
-trayectoria en picosegundos. En modo interactivo lo pregunta despues del panel
-de NetCDF; para scripts se usa `--skip-initial-ps`. El filtro conserva frames
-con `time_ps >= valor`, calculando el tiempo global desde `dt * ntwx` de cada
-segmento.
-
-Ademas genera `restarts/qm_snapshots.xyz` con las coordenadas QM
-correspondientes a los mismos snapshots. Para mapear un frame del NetCDF al
-`qm.xyz` del segmento usa `ntwx` de `d_QM.in`: el frame local `k` del NetCDF se
-asocia al frame dinamico `k * ntwx` del `qm.xyz`. Como los `qm.xyz` de LIO
-repiten dos veces la geometria inicial, se descarta el primer bloque y se indexa
-sobre la secuencia dinamica restante, igual que en `inspect-merge`/`merge-xyz`. Cada
-comentario del XYZ registra `restart_index`, frame global del NC, segmento,
-archivo NC, frame NC local y frame QM usado.
-
-Para uso no interactivo:
+## Sampling NetCDF restarts
 
 ```bash
+tolkien-tools md split-nc
 tolkien-tools md split-nc --count 100
 tolkien-tools md split-nc --count 100 --skip-initial-ps 0.2
-tolkien-tools md split-nc --root corrida --nc-pattern 'QM_*.nc' --count 100
+tolkien-tools md split-nc --root run --nc-pattern 'QM_*.nc' --count 100
 ```
 
-Para omitir el XYZ QM:
+`split-nc` requires `cpptraj`. It detects `.prmtop` topology in the root
+and NetCDF files in numbered subdirectories. If multiple topologies exist,
+it asks which to use. After counting frames and displaying the total, it
+asks how many `rst7` files to generate. Snapshots are distributed over the
+concatenated trajectory and saved as `restarts/QM_1.rst7`, `QM_2.rst7`, ...;
+the topology is copied into the same directory.
+
+An optional initial period can be discarded in picoseconds, interactively
+after the NetCDF panel or with `--skip-initial-ps`. Frames with
+`time_ps >= cutoff` are retained; global time uses each segment's `dt * ntwx`.
+
+`restarts/qm_snapshots.xyz` contains QM coordinates synchronized to the
+selected restarts. NetCDF local frame `k` maps to QM dynamic frame `k * ntwx`,
+using `ntwx` from `d_QM.in`. LIO XYZ files repeat the initial geometry twice;
+the first block is discarded and the remaining dynamic sequence is indexed,
+matching `inspect-merge`/`merge-xyz`. XYZ comments record restart index,
+global NC frame, segment, NC file, local NC frame and corresponding QM frame.
+
+To omit QM XYZ output, or use the legacy explicit topology/pattern/selection:
 
 ```bash
 tolkien-tools md split-nc --count 100 --no-qm-xyz
+tolkien-tools md split-nc system.prmtop 'QM_*.nc' 250-300
 ```
 
-El modo legacy sigue disponible si se pasan topologia, patron y seleccion de
-frames explicitamente:
+## Geometry analysis and viewers
 
 ```bash
-tolkien-tools md split-nc sistema.prmtop 'QM_*.nc' 250-300
+tolkien-tools md geom
+tolkien-tools md geom qm_completo.xyz --metric dFeN:distance:9,10
 ```
 
-`geom` genera automaticamente un visor 3D HTML del primer frame antes de pedir o
-calcular metricas e intenta abrirlo en el navegador. Por default usa `py3Dmol`,
-con esferas, sticks y colores por elemento. Plotly queda disponible solo si se
-pide explicitamente con `--viewer-backend plotly` o `--viewer-backend auto`.
-Por default muestra los indices atomicos siempre, porque el objetivo principal
-es elegir atomos para definir metricas. Para verlos solo al pasar el mouse:
+`geom` creates a 3D HTML viewer of the first frame before requesting or
+calculating metrics, and tries to open it in a browser. The default backend
+is py3Dmol with spheres, sticks and element colors. Atom indices are always
+shown by default to help select atoms for metrics.
 
 ```bash
 tolkien-tools md geom qm_completo.xyz --viewer-labels hover
-```
-
-Para elegir otro backend:
-
-```bash
 tolkien-tools md geom qm_completo.xyz --viewer-backend py3dmol
 tolkien-tools md geom qm_completo.xyz --viewer-backend plotly
 tolkien-tools md geom qm_completo.xyz --viewer-backend auto
-```
-
-Para generar el HTML sin abrirlo automaticamente:
-
-```bash
 tolkien-tools md geom qm_completo.xyz --no-open-viewer
 ```
 
-### Desplazamiento Fe-plano de porfirina
+Plotly is used only if explicitly requested with `plotly` or `auto`.
 
-Para hemoproteinas, `geom` tambien puede medir cuanto se levanta el Fe del hemo
-respecto del plano definido por los cuatro nitrogenos pirrolicos coordinados.
-La metrica se llama `heme_oop` y reporta la distancia normal firmada del Fe al
-mejor plano N4, en Angstrom. Por convencion, el signo es positivo hacia la
-histidina proximal.
+### Iron displacement from the porphyrin plane
 
-Modo automatico:
+For heme proteins, `heme_oop` measures the signed normal distance of Fe from
+the best-fit plane of the four coordinated pyrrolic nitrogens, in Angstrom.
+Positive displacement points toward the proximal histidine.
 
 ```bash
 tolkien-tools md geom qm_completo.xyz --metric FeOOP:heme_oop:auto
-```
-
-Si hay mas de un Fe, o se quiere fijar cual usar:
-
-```bash
 tolkien-tools md geom qm_completo.xyz --metric FeOOP:heme_oop:11
-```
-
-Tambien se pueden pasar explicitamente Fe,N1,N2,N3,N4:
-
-```bash
 tolkien-tools md geom qm_completo.xyz --metric FeOOP:heme_oop:11,2,4,6,8
-```
-
-Si se quiere fijar tambien el N coordinante de la histidina proximal, usar
-Fe,N1,N2,N3,N4,NHis:
-
-```bash
 tolkien-tools md geom qm_completo.xyz --metric FeOOP:heme_oop:11,2,4,6,8,10
-```
-
-La autodeteccion toma nitrogenos cercanos al Fe y elige el conjunto N4 mas
-coplanar y mejor centrado alrededor del Fe proyectado, para evitar agarrar el N
-axial de la histidina proximal. Luego usa el N cercano restante como referencia
-proximal para orientar el signo.
-
-Si se necesita el valor absoluto sin signo, usar `heme_oop_abs`:
-
-```bash
 tolkien-tools md geom qm_completo.xyz --metric FeOOP_abs:heme_oop_abs:auto
 ```
 
-### Comparacion global de metricas geometricas
+Specify Fe alone when multiple Fe atoms exist, Fe,N1,N2,N3,N4 to set the plane
+explicitly, or append NHis to specify the proximal coordinating nitrogen.
+Automatic detection chooses the nearby N4 set that is most planar and best
+centered around projected Fe, avoiding the axial histidine N; the remaining
+nearby N sets the proximal direction. `heme_oop_abs` reports absolute distance.
 
-Despues de correr `geom` en varias carpetas de dinamicas distintas, se pueden
-comparar histogramas de una misma metrica con:
+## Comparing geometry metrics across trajectories
+
+After running `geom` in several system directories:
 
 ```bash
 tolkien-tools md geom-compare
 ```
 
-En modo interactivo detecta subcarpetas con archivos `*_metrics.csv`, pregunta
-que carpetas usar, que parametro comparar y con que binning construir los
-histogramas. El nombre del parametro debe ser la misma etiqueta usada al definir
-la metrica con `geom`, por ejemplo `dFeO`.
-
-Para uso no interactivo:
+Interactive mode detects directories containing `*_metrics.csv` and asks
+which directories, metric labels and histogram binning to use. Labels must
+match the ones defined with `geom`, e.g. `dFeO`. Noninteractive examples:
 
 ```bash
-tolkien-tools md geom-compare sistemaA sistemaB sistemaC --metric dFeO
-tolkien-tools md geom-compare sistemaA sistemaB sistemaC --metric 'FeOOP,dFeN,dFeO'
-tolkien-tools md geom-compare sistemaA sistemaB --metric FeOOP --bins 50
-tolkien-tools md geom-compare sistemaA sistemaB --metric FeOOP --bins auto
-tolkien-tools md geom-compare sistemaA sistemaB --metric FeOOP --kde-smooth 4.0
-tolkien-tools md geom-compare sistemaA sistemaB --metric FeOOP --paper-figure yes
-tolkien-tools md geom-compare sistemaA sistemaB --metric FeOOP --no-kde
-tolkien-tools md geom-compare --root comparaciones --metric dFeO
+tolkien-tools md geom-compare systemA systemB systemC --metric dFeO
+tolkien-tools md geom-compare systemA systemB systemC --metric 'FeOOP,dFeN,dFeO'
+tolkien-tools md geom-compare systemA systemB --metric FeOOP --bins 50
+tolkien-tools md geom-compare systemA systemB --metric FeOOP --bins auto
+tolkien-tools md geom-compare systemA systemB --metric FeOOP --kde-smooth 4.0
+tolkien-tools md geom-compare systemA systemB --metric FeOOP --paper-figure yes
+tolkien-tools md geom-compare systemA systemB --metric FeOOP --no-kde
+tolkien-tools md geom-compare --root comparisons --metric dFeO
 ```
 
-Por default genera los resultados en `geom_global/`:
+Outputs default to `geom_global/`:
 
-- `geom_compare_<metrica>_histograms.png`: histogramas superpuestos por sistema.
-- `geom_compare_<metrica>_histograms_paper.png`: version limpia opcional para
-  editar, sin titulo, leyenda, nombres de ejes ni numeros de ejes, pero
-  conservando las marcas de ticks.
-- `geom_compare_<metrica>_values.csv`: valores usados para graficar.
-- `geom_compare_<metrica>_summary.csv`: resumen estadistico por sistema.
-- `geom_compare_<metrica>_kde_modes.csv`: maximos relevantes de las curvas KDE.
+- `geom_compare_<metric>_histograms.png`: overlaid histograms by system.
+- `geom_compare_<metric>_histograms_paper.png`: optional clean figure without
+  titles, legends, axis names or axis numbers, retaining tick marks.
+- `geom_compare_<metric>_values.csv`: plotted data.
+- `geom_compare_<metric>_summary.csv`: statistics by system.
+- `geom_compare_<metric>_kde_modes.csv`: relevant KDE maxima.
 
-Las curvas KDE se dibujan mas suavizadas que el default de SciPy para evitar
-maximos pequenos poco interpretables. El parametro `--kde-smooth` multiplica el
-ancho de banda de Scott: valores mayores dan curvas menos rugosas. El default no
-interactivo es `2.5`; `4.0` es util si se quieren ver solo poblaciones muy
-dominantes. `--kde-prominence` controla que maximos se reportan en
-`*_kde_modes.csv`; el default `0.08` ignora picos con prominencia menor al 8 %
-del maximo de densidad de cada sistema.
+KDE smoothing exceeds SciPy's default to suppress small, hard-to-interpret
+maxima. `--kde-smooth` multiplies Scott bandwidth; higher values are smoother.
+The noninteractive default is `2.5`; `4.0` emphasizes dominant populations.
+`--kde-prominence` controls reported maxima (default `0.08`, excluding peaks
+with prominence below 8% of each system's maximum density).

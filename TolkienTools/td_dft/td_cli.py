@@ -16,42 +16,19 @@ from td_single import process_single_file
 
 def main():
     parser = argparse.ArgumentParser(
-        prog="rutina",
+        prog="tolkien-tools td",
         description=(
-            "Genera espectros de absortividad molar ε desde TD-DFT de ORCA.\n"
-            "MODO 1 (archivo): rutina.py TD_10.out [opciones]\n"
-            "MODO 2 (carpeta): rutina.py [carpeta] [opciones]\n"
-            "Si no se indica carpeta ni archivo, se usa la carpeta actual."
+            "Generate molar absorptivity spectra from ORCA TD-DFT outputs.\n"
+            "Single file: tolkien-tools td TD_10.out [options]\n"
+            "Folder: tolkien-tools td [directory] [options]\n"
+            "The current directory is used when no target is given."
         ),
         epilog=(
-            "FLAGS PRINCIPALES\n"
-            "  filename              Archivo TD_*.out o carpeta con TD_*.out (default: '.')\n"
-            "  --mode {lambda,energy}\n"
-            "      Representación del espectro:\n"
-            "        lambda (default) -> ε(λ)\n"
-            "        energy          -> ε(E)\n"
-            "  -x0, --startx FLOAT   Límite inferior del eje x (en nm).\n"
-            "                        Si no se especifica, se usa 200 nm.\n"
-            "  -x1, --endx   FLOAT   Límite superior del eje x (en nm).\n"
-            "                        Si no se especifica, se usa 1000 nm.\n"
-            "  -wev, --linewidth_ev FLOAT\n"
-            "      Ancho de línea FWHM en eV para la convolución gaussiana.\n"
-            "      Default: 0.1 eV (a menos que se indique explícitamente).\n"
-            "  -s, --show            Muestra la ventana de matplotlib.\n"
-            "                        Si no se especifica -s/--show, se asume True.\n"
-            "  -n, --nosave          No guarda los PNG que se pudieran generar.\n"
-            "  --nref FLOAT          Índice de refracción (default: 1.33, agua en el visible).\n"
-            "  --exclude LIST        En modo carpeta, excluye TD_N.out por número o rango. Ej: --exclude 10,12,15 o 10-20\n"
-            "  --select LIST         En modo carpeta, selecciona índices 1..N o rangos (ej: 1-3,5,7).\n"
-            "  --maxlist             En modo carpeta, genera CSV con máximos individuales.\n"
-            "  --maxrange XMIN XMAX  Rango de x para buscar máximos (nm en modo lambda, eV en modo energy).\n"
-            "  --maxeps FLOAT        Umbral mínimo de epsilon para listar máximos.\n"
-            "  --maxonly             Listar solo el máximo absoluto por espectro (modo carpeta).\n"
-            "  --allpeaks            Listar todos los máximos locales (modo carpeta).\n"
-            "  --printall            En modo carpeta, guarda PNG individuales TD_*.out-nea-eps.png.\n"
-            "  --html                En modo carpeta, genera HTML interactivo (default: activado).\n"
-            "  --no-html             En modo carpeta, desactiva el HTML interactivo.\n"
-            "  -e, --export          En modo archivo único, exporta ε como espectro_*.dat o espectroE_*.dat.\n"
+            "Examples:\n"
+            "  tolkien-tools td TD_10.out --export\n"
+            "  tolkien-tools td . --exclude 10,12,15 --maxlist\n"
+            "  tolkien-tools td . --mode energy --no-html\n"
+            "Default wavelength range: 200-1000 nm. Matplotlib display is enabled."
         ),
         formatter_class=argparse.RawTextHelpFormatter,
     )
@@ -61,7 +38,7 @@ def main():
         "filename",
         nargs="?",
         default=".",
-        help="Archivo de salida de ORCA (TD_*.out) o carpeta con TD_*.out (default: carpeta actual).",
+        help="ORCA output (TD_*.out) or directory containing TD_*.out (default: current directory).",
     )
 
     # modo de representación
@@ -69,7 +46,7 @@ def main():
         "--mode",
         choices=["lambda", "energy"],
         default="lambda",
-        help="Representación del espectro: 'lambda' (ε(λ), default) o 'energy' (ε(E)).",
+        help="Spectrum representation: 'lambda' (ε(λ), default) or 'energy' (ε(E)).",
     )
 
     # mostrar ventana
@@ -78,7 +55,7 @@ def main():
         "--show",
         default=False,
         action="store_true",
-        help="Mostrar la ventana de matplotlib.",
+        help="Show the Matplotlib window.",
     )
 
     # no guardar png
@@ -87,7 +64,7 @@ def main():
         "--nosave",
         default=False,
         action="store_true",
-        help="No guardar los PNG que se pudieran generar.",
+        help="Do not save generated PNG files.",
     )
 
     # ancho de línea (FWHM) en eV
@@ -96,7 +73,7 @@ def main():
         "--linewidth_ev",
         type=float,
         default=0.1,
-        help="Ancho de línea (FWHM) en eV para la convolución gaussiana (default: 0.1 eV).",
+        help="Line width (FWHM) in eV for Gaussian convolution (default: 0.1 eV).",
     )
 
     # rango en λ (nm)
@@ -104,13 +81,13 @@ def main():
         "-x0",
         "--startx",
         type=float,
-        help="Límite inferior del eje x (λ, en nm; se convierte a E en modo 'energy').",
+        help="Lower x-axis bound (λ in nm; converted to E in 'energy' mode).",
     )
     parser.add_argument(
         "-x1",
         "--endx",
         type=float,
-        help="Límite superior del eje x (λ, en nm; se convierte a E en modo 'energy').",
+        help="Upper x-axis bound (λ in nm; converted to E in 'energy' mode).",
     )
 
     # índice de refracción
@@ -118,7 +95,7 @@ def main():
         "--nref",
         type=float,
         default=1.33,   # agua en el visible
-        help="Índice de refracción del medilt: 1.33, agua en el visible).",
+        help="Refractive index of the medium (default: 1.33, water in the visible range).",
     )
 
     # excluir algunos TD_* por número (modo carpeta)
@@ -126,14 +103,14 @@ def main():
         "--exclude",
         type=str,
         default=None,
-        help="Números de TD_*.out a excluir, ej: '10', '10,12,15' o '10-20' (solo modo carpeta).",
+        help="TD_*.out numbers to exclude, e.g. '10', '10,12,15' or '10-20' (folder mode only).",
     )
     # selección explícita por índice (modo carpeta)
     parser.add_argument(
         "--select",
         type=str,
         default=None,
-        help="Selecciona índices 1..N o rangos, ej: '1-15' o '1,2,3,7-10' (solo modo carpeta).",
+        help="Select indices 1..N or ranges, e.g. '1-15' or '1,2,3,7-10' (folder mode only).",
     )
     # no marcar picos en el espectro final (modo carpeta)
     parser.add_argument(
@@ -147,7 +124,7 @@ def main():
         "--printall",
         default=False,
         action="store_true",
-        help="(Modo carpeta) Guardar PNG individuales TD_*.out-nea-eps.png.",
+        help="(Folder mode) Save individual TD_*.out-nea-eps.png files.",
     )
 
     # lista de máximos por espectro (modo carpeta)
@@ -155,31 +132,31 @@ def main():
         "--maxlist",
         default=False,
         action="store_true",
-        help="(Modo carpeta) Generar CSV con la localización del máximo de cada espectro.",
+        help="(Folder mode) Generate a CSV listing the peak position of each spectrum.",
     )
     parser.add_argument(
         "--maxrange",
         nargs=2,
         type=float,
         metavar=("XMIN", "XMAX"),
-        help="(Modo carpeta) Rango de x para buscar máximos (nm en modo lambda, eV en modo energy).",
+        help="(Folder mode) Peak search x range (nm in lambda mode, eV in energy mode).",
     )
     parser.add_argument(
         "--maxeps",
         type=float,
-        help="(Modo carpeta) Umbral mínimo de epsilon para listar máximos.",
+        help="(Folder mode) Minimum epsilon threshold for listing peaks.",
     )
     parser.add_argument(
         "--maxonly",
         default=None,
         action="store_true",
-        help="(Modo carpeta) Listar solo el máximo absoluto dentro del rango.",
+        help="(Folder mode) List only the absolute maximum within the range.",
     )
     parser.add_argument(
         "--allpeaks",
         default=None,
         action="store_true",
-        help="(Modo carpeta) Listar todos los máximos locales dentro del rango.",
+        help="(Folder mode) List all local maxima within the range.",
     )
 
     # HTML interactivo (plotly) en modo carpeta: activado por defecto
@@ -188,13 +165,13 @@ def main():
         "--html",
         dest="html",
         action="store_true",
-        help="(Modo carpeta) Generar HTML interactivo (default: activado).",
+        help="(Folder mode) Generate interactive HTML (default: enabled).",
     )
     html_group.add_argument(
         "--no-html",
         dest="html",
         action="store_false",
-        help="(Modo carpeta) No generar HTML interactivo.",
+        help="(Folder mode) Do not generate interactive HTML.",
     )
     parser.set_defaults(html=True)
 
@@ -204,7 +181,7 @@ def main():
         "--export",
         default=False,
         action="store_true",
-        help="(Modo archivo único) Exportar datos ε como espectro_*.dat (lamb espectroE_*.dat (energy).",
+        help="(Single-file mode) Export epsilon as espectro_*.dat (lambda) or espectroE_*.dat (energy).",
     )
 
     args = parser.parse_args()
@@ -221,7 +198,7 @@ def main():
         args.show = True
 
     if args.linewidth_ev <= 0:
-        print("El ancho de línea (--linewidth_ev) debe ser > 0.")
+        print("Line width (--linewidth_ev) must be > 0.")
         sys.exit(1)
 
     target = args.filename

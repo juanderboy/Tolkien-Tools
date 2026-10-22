@@ -1,26 +1,25 @@
 # TD-DFT NEA Spectra
 
-Rutina conectada actualmente:
-
-```text
-TolkienTools/td_dft/td_analyze.py
-```
-
-Uso desde el menu maestro:
+Nuclear Ensemble Approximation (NEA) absorption spectra from ORCA TD-DFT
+calculations. The launcher entry point is `td_analyze.py`:
 
 ```bash
 tolkien-tools
+tolkien-tools td --help
+tolkien-tools td TD_10.out --export
+tolkien-tools td . --mode energy --no-html
 ```
 
-Este modulo contiene la rutina de espectros de absorcion por Nuclear Ensemble
-Approximation (NEA) a partir de calculos TD-DFT de ORCA.
+Use a single `TD_*.out` file or a directory containing many outputs. Folder
+processing supports file selection/exclusion, individual and ensemble spectra,
+peak lists, and interactive HTML output. Run `--help` for all options.
 
-Estructura interna:
+## Internal organization
 
-- `td_analyze.py`: entrada compatible usada por el launcher.
-- `td_cli.py`: argumentos de linea de comandos y dispatch archivo/carpeta.
-- `td_common.py`: constantes fisicas, rangos, selecciones y apertura de HTML.
-- `td_orca.py`: parsing de salidas TD-DFT de ORCA.
-- `td_spectrum.py`: grilla de energia, gaussianas y calculo NEA.
-- `td_single.py`: procesamiento de un unico archivo `TD_*.out`.
-- `td_batch.py`: procesamiento de carpetas con muchos `TD_*.out`.
+- `td_analyze.py`: compatible entry point used by the launcher.
+- `td_cli.py`: command-line arguments and file/folder dispatch.
+- `td_common.py`: physical constants, ranges, selections and HTML opening.
+- `td_orca.py`: parsing of ORCA TD-DFT outputs.
+- `td_spectrum.py`: energy grid, Gaussian broadening and NEA calculation.
+- `td_single.py`: processing of a single `TD_*.out` file.
+- `td_batch.py`: processing of directories with many `TD_*.out` files.

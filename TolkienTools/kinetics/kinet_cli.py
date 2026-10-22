@@ -121,7 +121,7 @@ def ask_model_choice(default_model: str) -> str:
     if default_model not in MODEL_LABELS:
         raise ValueError(f"Unknown kinetic model: {default_model}")
 
-    print("Modelo cinetico:")
+    print("Kinetic model:")
     general_keys = list(GENERAL_MODEL_LABELS)
     for i, key in enumerate(general_keys, start=1):
         marker = "default" if key == default_model else ""
@@ -129,9 +129,9 @@ def ask_model_choice(default_model: str) -> str:
         print(f"  {i}. {MODEL_LABELS[key]}{suffix}")
     special_index = len(general_keys) + 1
     special_suffix = " [default]" if default_model in SPECIAL_MODEL_LABELS else ""
-    print(f"  {special_index}. Mecanismos especiales{special_suffix}")
+    print(f"  {special_index}. Special mechanisms{special_suffix}")
 
-    choice = input("Elegir modelo? Enter = default: ").strip()
+    choice = input("Choose a model (Enter = default): ").strip()
     if not choice:
         return default_model
 
@@ -143,12 +143,12 @@ def ask_model_choice(default_model: str) -> str:
 
     special_keys = list(SPECIAL_MODEL_LABELS)
     print()
-    print("Mecanismos especiales:")
+    print("Special mechanisms:")
     for i, key in enumerate(special_keys, start=1):
         marker = "default" if key == default_model else ""
         suffix = f" [{marker}]" if marker else ""
         print(f"  {i}. {SPECIAL_MODEL_LABELS[key]}{suffix}")
-    special_choice = input("Elegir mecanismo especial? Enter = primero: ").strip()
+    special_choice = input("Choose a special mechanism (Enter = first): ").strip()
     if not special_choice:
         return special_keys[0]
     special_choice_index = int(special_choice)
@@ -164,18 +164,18 @@ def print_model_presentation(model: str) -> None:
     """Print a compact description of the selected kinetic model."""
     presentation = MODEL_PRESENTATIONS[model]
     print()
-    print("Presentacion basica del modelo")
-    print(f"  Modelo: {MODEL_LABELS[model]}")
-    print(f"  Esquema: {presentation['scheme']}")
-    print("  Especies absorbentes ajustadas: " + ", ".join(MODEL_SPECIES[model]))
-    print("  Evolucion temporal:")
+    print("Model overview")
+    print(f"  Model: {MODEL_LABELS[model]}")
+    print(f"  Scheme: {presentation['scheme']}")
+    print("  Fitted absorbing species: " + ", ".join(MODEL_SPECIES[model]))
+    print("  Time evolution:")
     for line in presentation["profiles"]:
         print(f"    {line}")
-    print("  Parametros:")
+    print("  Parameters:")
     for line in presentation["parameters"]:
         print(f"    {line}")
     for line in presentation["notes"]:
-        print(f"  Nota: {line}")
+        print(f"  Note: {line}")
     print()
 
 
@@ -227,8 +227,8 @@ def ask_known_spectra_choice(model: str) -> list[KnownSpectrumSpec]:
     species_text = ", ".join(MODEL_SPECIES[model])
     print()
     choice = input(
-        "Tenes espectros conocidos para alguna especie? "
-        f"Especies del modelo: {species_text}. Enter/n = no: "
+        "Do you have known spectra for any species? "
+        f"Model species: {species_text}. Enter/n = no: "
     ).strip().lower()
     if choice in {"", "n", "no"}:
         return []
@@ -236,10 +236,10 @@ def ask_known_spectra_choice(model: str) -> list[KnownSpectrumSpec]:
         return [parse_known_spectrum_spec(choice)]
 
     specs: list[KnownSpectrumSpec] = []
-    print("Indica especies y archivo, por ejemplo: A B espectros.dat")
-    print("Usa una linea por archivo. Enter = terminar.")
+    print("Enter species and filename, e.g. A B spectra.dat")
+    print("Use one line per file. Enter = finish.")
     while True:
-        text = input("Especies conocidas y archivo: ").strip()
+        text = input("Known species and filename: ").strip()
         if not text:
             break
         specs.append(parse_known_spectrum_spec(text))
@@ -334,7 +334,7 @@ def ask_hss_ratio(default_ratio: float) -> float:
     """Ask for the initial added HSS-/Mb ratio used by the transsulfuration model."""
     print()
     text = input(
-        "Relacion inicial R_HSS = [HSS-]_agregado/[Mb]_0? "
+        "Initial ratio R_HSS = [HSS-]_added/[Mb]_0? "
         f"Enter = {default_ratio:g}: "
     ).strip()
     if not text:
@@ -427,25 +427,25 @@ def print_fit_report(
 def ask_post_fit_spectra_to_drop(experiment: Experiment) -> list[int] | None:
     """Ask whether to remove spectra after inspecting the final residuals panel."""
     while True:
-        print("Los indices son los que aparecen en el tooltip del panel de residuos.")
+        print("Use the indices shown in the residual panel tooltips.")
         choice = input(
-            "Espectros a eliminar y recalcular? "
-            "Ej: 3 o 3,7-9. Enter/n = terminar: "
+            "Spectra to remove before refitting? "
+            "E.g. 3 or 3,7-9. Enter/n = finish: "
         ).strip()
         normalized = choice.lower()
-        if normalized in {"", "n", "no", "fin", "q", "quit", "salir"}:
+        if normalized in {"", "n", "no", "fin", "q", "quit", "exit", "salir"}:
             return None
 
         try:
             drop_indices = parse_spectrum_selection(choice, experiment.t.size)
         except ValueError as exc:
-            print(f"Seleccion invalida: {exc}")
+            print(f"Invalid selection: {exc}")
             continue
 
         if not drop_indices:
             return None
         if experiment.t.size - len(drop_indices) < 2:
-            print("Deben quedar al menos 2 espectros para recalcular.")
+            print("At least 2 spectra must remain for refitting.")
             continue
         return drop_indices
 
@@ -709,15 +709,15 @@ def special_study_choice() -> tuple[str, str | None] | None:
     thermal_index = len(models) + 1
     global_models = list(HSS_TRANSSULFURATION_MODELS)
     while True:
-        print("\nMecanismos y estudios especiales")
+        print("\nSpecial mechanisms and studies")
         for index, model in enumerate(models, 1):
             print(f"  {index}. {SPECIAL_MODEL_LABELS[model]}")
-        print(f"  {thermal_index}. Analisis termico de especiacion acido-base de disulfuros")
+        print(f"  {thermal_index}. Thermal analysis of disulfide acid-base speciation")
         for index, model in enumerate(global_models, thermal_index + 1):
-            print(f"  {index}. Ajuste global: {SPECIAL_MODEL_LABELS[model]}")
-        print("  0. Volver")
-        choice = input("Elegir mecanismo o estudio: ").strip().lower()
-        if choice in {"0", "q", "salir"}:
+            print(f"  {index}. Global fit: {SPECIAL_MODEL_LABELS[model]}")
+        print("  0. Back")
+        choice = input("Choose a mechanism or study: ").strip().lower()
+        if choice in {"0", "q", "quit", "exit", "back", "salir"}:
             return None
         if choice.isdigit():
             index = int(choice)
@@ -727,20 +727,20 @@ def special_study_choice() -> tuple[str, str | None] | None:
                 return "activation", None
             if thermal_index < index <= thermal_index + len(global_models):
                 return "global", global_models[index-thermal_index-1]
-        print("Elegir una de las opciones indicadas.")
+        print("Choose one of the listed options.")
 
 
 def kinetics_menu(args: argparse.Namespace) -> bool:
     """Choose a mechanism first; request its input only when ready to run."""
     models = list(GENERAL_MODEL_LABELS)
     while True:
-        print("\nMenu principal de cinetica")
+        print("\nKinetics main menu")
         for index, model in enumerate(models, 1):
             print(f"  {index}. {GENERAL_MODEL_LABELS[model]}")
-        print("  4. Mecanismos y estudios especiales")
-        print("  0. Volver / salir")
-        choice = input("Elegir mecanismo o estudio: ").strip().lower()
-        if choice in {"0", "q", "salir"}:
+        print("  4. Special mechanisms and studies")
+        print("  0. Back / exit")
+        choice = input("Choose a mechanism or study: ").strip().lower()
+        if choice in {"0", "q", "quit", "exit", "back", "salir"}:
             return False
         if choice in {"1", "2", "3"}:
             kind, model = "spectra", models[int(choice)-1]
@@ -750,7 +750,7 @@ def kinetics_menu(args: argparse.Namespace) -> bool:
                 continue
             kind, model = selected
         else:
-            print("Elegir una opcion de 0 a 4.")
+            print("Choose an option from 0 to 4.")
             continue
         if kind == "activation":
             from kinet_activation import main as activation_main
@@ -759,12 +759,12 @@ def kinetics_menu(args: argparse.Namespace) -> bool:
         if kind == "global":
             source = args.global_manifest or args.input
             if not source:
-                source = input("Tabla de experimentos CSV/TSV (Enter = volver): ").strip()
+                source = input("Experiment table CSV/TSV (Enter = back): ").strip()
             if not source:
                 continue
             args.global_manifest = source
         elif not args.input:
-            source = input("Archivo de espectros TXT/DAT/KD (Enter = volver): ").strip()
+            source = input("Spectra file TXT/DAT/KD (Enter = back): ").strip()
             if not source:
                 continue
             args.input = source
@@ -916,14 +916,14 @@ def main() -> None:
     initial_spectrum_unavailable_reason = None
     if any(first_species in spec.species for spec in known_specs):
         initial_spectrum_unavailable_reason = (
-            "El primer espectro del modelo ya fue provisto como espectro conocido "
-            f"({first_species}); no se puede fijar tambien desde el primer espectro experimental."
+            "The first model spectrum was already supplied as a known spectrum "
+            f"({first_species}); it cannot also be fixed from the first experimental spectrum."
         )
     final_spectrum_unavailable_reason = None
     if any(last_species in spec.species for spec in known_specs):
         final_spectrum_unavailable_reason = (
-            "El ultimo espectro del modelo ya fue provisto como espectro conocido "
-            f"({last_species}); no se puede fijar tambien desde el ultimo espectro experimental."
+            "The last model spectrum was already supplied as a known spectrum "
+            f"({last_species}); it cannot also be fixed from the last experimental spectrum."
         )
 
     initial_spectrum_label, final_spectrum_label = endpoint_spectrum_menu_labels(
@@ -1034,7 +1034,7 @@ def main() -> None:
             f"{index + 1} (t={fit_experiment.t[index]:.6g})"
             for index in drop_indices
         )
-        print(f"Recalculando sin espectros: {removed}")
+        print(f"Refitting without spectra: {removed}")
         print()
         fit_experiment = drop_spectra(fit_experiment, drop_indices)
 

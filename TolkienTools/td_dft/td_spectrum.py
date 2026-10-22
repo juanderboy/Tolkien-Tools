@@ -73,7 +73,7 @@ def compute_epsilon_spectrum(energies_eV, foscs, fwhm_eV, n_ref=1.33):
     con S(E) = Σ ΔE_n f_n g(E - ΔE_n).
     """
     if energies_eV.size == 0 or foscs.size == 0:
-        raise ValueError("Sin datos de energías/fosc para construir el espectro.")
+        raise ValueError("No energy/oscillator-strength data to construct the spectrum.")
 
     # prefactor para ε directamente (en L mol^-1 cm^-1)
     C0 = math.pi * e_charge * hbar / (2.0 * m_e * c_light * eps0 * n_ref)

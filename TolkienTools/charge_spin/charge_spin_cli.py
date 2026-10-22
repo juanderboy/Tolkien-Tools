@@ -283,7 +283,7 @@ def build_coordination_fragment_proposal(
         comment, atoms = parse_first_xyz_frame(geometry_path)
         title = (
             f"{os.path.basename(geometry_path)} | {comment or 'XYZ first frame'} "
-            "| indices 1-based"
+            "| 1-based indices"
         )
         print(f"[INFO] Using '{geometry_path}' for coordination analysis.")
 
@@ -394,8 +394,8 @@ def prompt_spin_fragment_configs(
                     for aid in repeated:
                         previous_fragment = used_atom_to_fragment.get(aid, "?")
                         print(
-                            f"El atomo {aid} ya fue asignado al fragmento "
-                            f"{previous_fragment}. Revisa tu asignacion."
+                            f"Atom {aid} is already assigned to fragment "
+                            f"{previous_fragment}. Review your assignments."
                         )
                     print("Please enter the atoms for this fragment again.")
                     continue
@@ -426,7 +426,7 @@ def prompt_spin_fragment_configs(
 
         missing_summary = ", ".join(f"{aid}({atom_type_map.get(aid, '?')})" for aid in unassigned_atoms)
         print("")
-        print(f"Faltaron asignar los atomos {missing_summary} a algun fragmento.")
+        print(f"Atoms {missing_summary} have not been assigned to any fragment.")
         resolution = prompt_numbered_choice(
             "How should the unassigned atoms be handled?",
             [("Continue and leave them outside the analysis", "exclude"),
@@ -461,6 +461,21 @@ def prompt_spin_fragment_configs(
 
 
 def main():
+    if any(arg in {"-h", "--help"} for arg in sys.argv[1:]):
+        import argparse
+
+        parser = argparse.ArgumentParser(
+            prog="tolkien-tools charges",
+            description="Interactive charge and spin population analysis.",
+            epilog=(
+                "Run without arguments to choose single-system or global analysis. "
+                "Supports ORCA and LIO populations, atom/fragment selection, "
+                "histograms and geometry viewers. Single-system results are saved "
+                "in charge_spin_results/ under the current directory."
+            ),
+        )
+        parser.parse_args()
+        return
     print_welcome_banner()
     mode = prompt_numbered_choice(
         "Execution mode:",
@@ -721,8 +736,8 @@ def main():
         else:
             mq_files = get_sorted_files("mq")
             if not mq_files:
-                print_lio_merge_pop_hint("cargas")
-                print("Error: no se encontro 'mulliken_full.dat' ni 'mq_full.dat'.")
+                print_lio_merge_pop_hint("charge populations")
+                print("Error: neither 'mulliken_full.dat' nor 'mq_full.dat' was found.")
                 sys.exit(1)
 
             print("Charge files (mq_*.dat) to be merged:")
@@ -755,8 +770,8 @@ def main():
                 )
             else:
                 spin_full = None
-                print_lio_merge_pop_hint("spines")
-                print("[INFO] No se encontro 'mulliken_spin_full.dat' ni 'ms_full.dat'. Solo se analizaran cargas.")
+                print_lio_merge_pop_hint("spin populations")
+                print("[INFO] Neither 'mulliken_spin_full.dat' nor 'ms_full.dat' was found. Only charges will be analyzed.")
         os.chdir(analysis_output_dir)
         spin_sign = -1.0
     else:

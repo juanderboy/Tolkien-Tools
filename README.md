@@ -47,6 +47,7 @@ workflows require external programs such as `cpptraj`.
 More detailed documentation is available in
 [`TolkienTools/README.md`](TolkienTools/README.md) and in each module folder.
 
-El modulo cinetico tambien incluye [analisis conjunto de activacion y equilibrio
-acido-base](TolkienTools/kinetics/activacion_acido_base.md), con tablas de
-constantes a distintas temperaturas y pHs o entrada manual desde el menu.
+The kinetics module also includes [joint activation and acid-base equilibrium
+analysis](TolkienTools/kinetics/activacion_acido_base.md), using tables of rate
+constants at different temperatures and pH values or manual input from the menu.
+The linked technical manual is in Spanish.

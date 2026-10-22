@@ -81,19 +81,19 @@ def write_xyz_viewer(
             return output_path
         except ImportError:
             if backend == "py3dmol":
-                raise RuntimeError("No se pudo importar py3Dmol. Instalar con: python3 -m pip install py3Dmol")
-            print("[INFO] py3Dmol no esta instalado en este entorno.")
-            print("       Se generara un visor HTML basico con Plotly.")
-            print("       Para usar el visor molecular mejorado con esferas/sticks:")
+                raise RuntimeError("Could not import py3Dmol. Install with: python3 -m pip install py3Dmol")
+            print("[INFO] py3Dmol is not installed in this environment.")
+            print("       A basic HTML viewer will be generated with Plotly.")
+            print("       To use the enhanced molecular viewer with spheres/sticks:")
             print("         python3 -m pip install py3Dmol")
         except Exception as exc:
             if backend == "py3dmol":
-                raise RuntimeError(f"No se pudo generar el visor py3Dmol: {exc}") from exc
-            print(f"[WARN] No se pudo generar el visor py3Dmol: {exc}")
-            print("       Se generara un visor HTML basico con Plotly.")
+                raise RuntimeError(f"Could not generate the py3Dmol viewer: {exc}") from exc
+            print(f"[WARN] Could not generate the py3Dmol viewer: {exc}")
+            print("       A basic HTML viewer will be generated with Plotly.")
 
     if backend not in {"auto", "plotly"}:
-        raise ValueError(f"Backend de visor no soportado: {backend}")
+        raise ValueError(f"Unsupported viewer backend: {backend}")
     write_plotly_viewer(xyz_path, output_path, frame, frame_number, labels)
     return output_path
 
@@ -161,7 +161,7 @@ def write_py3dmol_viewer(
 """
 
     view.zoomTo()
-    title = f"{xyz_path.name} | frame {frame_number} | indices 1-based"
+    title = f"{xyz_path.name} | frame {frame_number} | 1-based indices"
     body = view._make_html()
     html = (
         "<!doctype html>\n"
@@ -235,7 +235,7 @@ def write_plotly_viewer(
         ]
     )
     fig.update_layout(
-        title=f"{xyz_path.name} | frame {frame_number} | indices 1-based",
+        title=f"{xyz_path.name} | frame {frame_number} | 1-based indices",
         scene={
             "xaxis_title": "x (A)",
             "yaxis_title": "y (A)",

@@ -431,21 +431,21 @@ def ask_preprocessing_choices(
 ]:
     """Ask which spectra/baseline region/wavelength range to use."""
     print()
-    print(f"El experimento tiene {experiment.t.size} espectros.")
-    print("Los indices de espectros son 1-based: el primer espectro es 1.")
+    print(f"The experiment contains {experiment.t.size} spectra.")
+    print("Spectrum indices are 1-based: the first spectrum is 1.")
     drop_text = input(
-        "Espectros a eliminar? Ej: 1 o 1,4-6. Enter = ninguno: "
+        "Spectra to remove? E.g. 1 or 1,4-6. Enter = none: "
     )
     drop_indices = parse_spectrum_selection(drop_text, experiment.t.size)
 
     dropped = drop_spectra(experiment, drop_indices)
     if default_reaction_start_time is None:
-        start_default_text = "sin recorte"
+        start_default_text = "no cutoff"
     else:
         start_default_text = f"{default_reaction_start_time:g}"
     start_text = input(
-        "Tiempo de inicio de reaccion? "
-        "Se usan espectros con t >= t_inicio y el primero queda como t=0. "
+        "Reaction start time? "
+        "Use spectra with t >= t_start; the first retained spectrum defines t=0. "
         f"Enter = {start_default_text}: "
     )
     reaction_start_time = parse_reaction_start_time_choice(
@@ -453,13 +453,13 @@ def ask_preprocessing_choices(
         default_reaction_start_time,
     )
     if default_reaction_end_time is None:
-        end_default_text = "sin recorte"
+        end_default_text = "no cutoff"
     else:
         end_default_text = f"{default_reaction_end_time:g}"
     end_text = input(
-        "Tiempo final para el ajuste? "
-        "Usa esta opcion para aislar una fase inicial. "
-        f"Se usan solo espectros con t <= t_final. Enter = {end_default_text}: "
+        "Final time for fitting? "
+        "Use this option to isolate an initial phase. "
+        f"Only use spectra with t <= t_end. Enter = {end_default_text}: "
     )
     reaction_end_time = parse_reaction_end_time_choice(
         end_text,
@@ -481,16 +481,16 @@ def ask_preprocessing_choices(
             print(initial_spectrum_unavailable_reason)
             fix_initial_spectrum = False
         else:
-            default_text = "si" if default_fix_initial_spectrum else "no"
+            default_text = "yes" if default_fix_initial_spectrum else "no"
             print()
-            print("Opcion de espectro inicial")
+            print("Initial spectrum option")
             print(
-                "Espectro del reactivo: Enter/no = no fijar; "
-                f"s = primer retenido (t_original = {first_kept_original_time:.6g}); "
-                "o indica el indice original de cualquier espectro previo."
+                "Reactant spectrum: no = do not fix; "
+                f"yes = first retained spectrum (original t = {first_kept_original_time:.6g}); "
+                "or enter the original index of an earlier spectrum."
             )
             initial_text = input(
-                f"Espectro fijo para {initial_spectrum_label}? "
+                f"Fixed spectrum for {initial_spectrum_label}? "
                 f"Enter = {default_text}: "
             ).strip().lower()
             if not initial_text:
@@ -520,16 +520,16 @@ def ask_preprocessing_choices(
             print(final_spectrum_unavailable_reason)
             fix_final_spectrum = False
         else:
-            default_text = "si" if default_fix_final_spectrum else "no"
+            default_text = "yes" if default_fix_final_spectrum else "no"
             print()
-            print("Opcion de espectro final")
+            print("Final spectrum option")
             print(
-                "Ultimo espectro despues de la poda temporal: "
-                f"indice {dropped.t.size}, t_corregido = {dropped.t[-1]:.6g}."
+                "Last spectrum after time trimming: "
+                f"index {dropped.t.size}, corrected t = {dropped.t[-1]:.6g}."
             )
             final_text = input(
-                "Tomar ese ultimo espectro como espectro fijo del producto "
-                f"{final_spectrum_label} y ajustar solo los restantes? "
+                "Use this last spectrum as the fixed product spectrum for "
+                f"{final_spectrum_label} and fit only the remaining spectra? "
                 f"Enter = {default_text}: "
             ).strip().lower()
             if not final_text:
@@ -559,15 +559,15 @@ def ask_preprocessing_choices(
         overview_auto_region,
     ):
         print(
-            "La region automatica cambio porque ahora se calcula solamente con "
-            "los espectros retenidos despues de la poda temporal:"
+            "The automatic region changed because it now uses only "
+            "the spectra retained after time trimming:"
         )
         print(
-            "  Panel inicial (todos los espectros): "
+            "  Initial panel (all spectra): "
             f"{overview_auto_region[0]:g}-{overview_auto_region[1]:g} nm"
         )
         print(
-            "  Sugerencia actual (espectros retenidos): "
+            "  Current suggestion (retained spectra): "
             f"{auto_region[0]:g}-{auto_region[1]:g} nm"
         )
     else:
@@ -592,13 +592,13 @@ def ask_preprocessing_choices(
     while True:
         if allowed_work_range is None:
             range_prompt = (
-                "Rango de lambdas para trabajar? Ej: 320-820. "
+                "Wavelength range for fitting? E.g. 320-820. "
                 f"Enter = {default_work_range[0]:g}-{default_work_range[1]:g}: "
             )
         else:
             range_prompt = (
-                "Rango de lambdas para trabajar? "
-                f"Debe estar dentro de {allowed_work_range[0]:g}-"
+                "Wavelength range for fitting? "
+                f"Must be within {allowed_work_range[0]:g}-"
                 f"{allowed_work_range[1]:g} nm. "
                 f"Enter = {default_work_range[0]:g}-{default_work_range[1]:g}: "
             )
@@ -617,12 +617,12 @@ def ask_preprocessing_choices(
         ):
             break
         print(
-            "Rango invalido: con espectros conocidos debe estar dentro de "
+            "Invalid range: known spectra restrict the range to "
             f"{allowed_work_range[0]:g}-{allowed_work_range[1]:g} nm."
         )
 
     c0_text = input(
-        f"Concentracion inicial c0 en molar? Enter = {default_c0:g} M: "
+        f"Initial concentration c0 in molar units? Enter = {default_c0:g} M: "
     ).strip()
     if not c0_text:
         c0 = default_c0
@@ -805,8 +805,8 @@ def preprocess_experiment(
             reaction_end_time,
         )
         approve = input(
-            "Aprobar estos espectros para el ajuste? "
-            "Enter/s = si, n = volver a elegir poda/baseline/rango: "
+            "Approve these spectra for fitting? "
+            "Enter/y = yes, n = revise trimming/baseline/range: "
         ).strip().lower()
         if approve in {"", "s", "si", "sí", "y", "yes"}:
             return (
@@ -831,6 +831,6 @@ def preprocess_experiment(
             )
         if approve in {"n", "no"}:
             print()
-            print("Volviendo a las opciones de preprocesado.")
+            print("Returning to preprocessing options.")
             continue
         raise ValueError("Approval choice must be yes or no")
