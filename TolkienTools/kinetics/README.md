@@ -262,6 +262,58 @@ manual entry, checks, outputs and limitations. The separate
 [kinetic model manual](modelos_cineticos_tolkien_tools.md) is also retained
 in its original language.
 
+### Reoptimized uncertainty and compensation maps
+
+After the fit, the default analysis generates
+`profile_compensation_matrix_six_parameters.png/pdf/svg`. The diagonal shows
+one-parameter profiles with the other five parameters refitted. Each off-diagonal
+panel fixes two parameters and refits the other four, showing valleys of
+compensation; mirrored panels share the same numerical grid. Red crosses mark
+the original fit, and `r` is the local linearized parameter correlation.
+With `--fixed-pka`, pKa remains fixed during all refits and the output is a
+five-parameter matrix (`profile_compensation_matrix_five_parameters.*`).
+
+The fitted variables are ln(k_HA,ref), ln(k_A,ref), the two intrinsic activation
+enthalpies, acidity enthalpy, and (when free) pKa at the reference temperature.
+Entropies are derived quantities, not additional independent parameters.
+
+Defaults are 33 points per axis over +/-3 local SE, clipped to the numerical
+bounds. Use 21 points for a faster preview:
+
+```bash
+tolkien-tools kinetics activation measurements.csv --profile-points 21
+```
+
+`--profile-extent` adjusts the half-width, and `--profile-max-nfev` adjusts
+the optimization limit per refit. These calculations can take several minutes;
+progress is printed as each profile/map completes. `--no-profiles` skips this
+step while retaining the fit and local SE analysis. `--no-plot` omits figures
+but still saves numerical profiles unless combined with `--no-profiles`.
+
+The objective uses the original log-rate residuals and their supplied weights.
+For a nonzero fitted SSE, the color scale shows SSE/fitted SSE (weighted SSE
+when sigma_log_k is supplied), with descriptive contours at 1.05, 1.2, 1.5,
+2 and 3. For effectively zero SSE, objective increases replace the undefined
+ratio. If local SE is unavailable or effectively zero, explicitly documented
+exploration scales replace SE-based ranges. Failed refits are masked and
+counted; a lower minimum found during profiling is flagged for a new fit.
+
+These contours are **not confidence regions**, and local parameter correlation
+is not a correlation of measurements. Keep interpreting the existing local SE
+as conditional, linearized uncertainty; the profile maps additionally reveal
+nonlinear compensation over the explored range.
+
+Numerical outputs accompany the figures:
+
+- `profiles.json`: one-dimensional profiles and reoptimized parameters.
+- `matrix_pair_grids/pair_i_j.npz`: axes, objective values, full reoptimized
+  parameters and convergence masks for each pair.
+- `parameter_correlation.json`: local parameter correlation matrix; unavailable
+  entries are null, including the fixed pKa row/column.
+- `profile_matrix_manifest.json`: settings, axis scales/ranges, weighting,
+  failed-node counts and interpretation notes.
+- `result.json` and `summary.txt`: the fit plus a profile-analysis summary.
+
 ## Internal organization
 
 - `kinet_python.py`: compatible entry point.
@@ -275,3 +327,6 @@ in its original language.
 - `kinet_plotting.py`: exploratory plots, diagnostics and final panel.
 - `kinet_t0.py`: time-zero estimator for reduction without binding.
 - `kinet_export.py`: concentrations, pure spectra, summaries and PNG output.
+
+- `kinet_activation.py`: two-form activation/acid-base fits and local uncertainty.
+- `kinet_activation_profiles.py`: reoptimized profiles and compensation matrices.

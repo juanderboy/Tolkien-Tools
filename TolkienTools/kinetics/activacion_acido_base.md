@@ -152,7 +152,11 @@ Un pKa fijado se marca `fixed`, sin asignarle error experimental cero.
 Con Jacobiano de rango insuficiente o parámetros en límites numéricos, los SE
 se indican como no disponibles. Son aproximaciones locales condicionadas al
 modelo; no intervalos del 95 %, ni incertidumbres experimentales totales.
-Esta versión no genera perfiles de confianza automáticamente. Se deben considerar
+Además se generan perfiles reoptimizados y una matriz de compensación descriptiva
+(ver las opciones `--profile-points`, `--profile-extent` y `--no-profiles`).
+Con pKa fijo la matriz tiene cinco parámetros. Los contornos no son regiones
+de confianza; las grillas y su convergencia se exportan para revisión.
+Esta versión no asigna intervalos de confianza a esos contornos. Se deben considerar
 el procesamiento previo, correlaciones y elección del modelo.
 Comparar pKa fijo/libre, inspeccionar residuos y revisar cobertura térmica y de
 pH antes de interpretar parámetros microscópicos. Un mínimo estable puede

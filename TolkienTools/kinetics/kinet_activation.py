@@ -142,6 +142,14 @@ def format_summary(result):
               'includes covariance between intrinsic enthalpy and log rate.']
     if not uncertainty['available']:
         lines.append('SE unavailable: '+uncertainty['reason'])
+    profile = result.get('profile_analysis')
+    if profile is not None:
+        lines += ['', 'Reoptimized parameter profiles',
+                  f"  Pairwise maps: {profile['pair_count']} | Failed nodes: {profile['failed_nodes']}",
+                  f"  Grid points per axis: {profile['grid_points']} | Extent: {profile['extent_local_SE']:g} local SE",
+                  '  Matrix: profiles on the diagonal; other free parameters refitted in every map.',
+                  '  Contours describe objective increases, not confidence regions.']
+        lines += ['  '+note for note in profile['notes'] if 'fallback' in note or 'failed' in note or 'lower objective' in note]
     lines += ['Note: '+warning for warning in result['warnings']]
     return '\n'.join(lines)+'\n'
 
@@ -229,7 +237,8 @@ def write_table(path, rows):
         writer.writerows(rows)
 
 
-def export_result(result, output, plot=True):
+def export_result(result, output, plot=True, profiles=True, profile_points=33,
+                  profile_extent=3., profile_max_nfev=600):
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
     write_table(output/'input.tsv', [{k: '' if v is None else v for k, v in r.items()}
@@ -259,6 +268,14 @@ def export_result(result, output, plot=True):
         for ext in ('png', 'pdf', 'svg'):
             fig.savefig(output/f'activation_fit.{ext}', dpi=250)
         plt.close(fig)
+    if profiles:
+        from kinet_activation_profiles import analyze_profiles, export_profiles
+        print('Computing reoptimized uncertainty profiles; this can take several minutes.', flush=True)
+        analysis = analyze_profiles(result, grid_points=profile_points, extent_se=profile_extent,
+                                    max_nfev=profile_max_nfev, progress=lambda text: print(text, flush=True))
+        result['profile_analysis'] = export_profiles(analysis, output, plot=plot)
+        (output/'result.json').write_text(json.dumps(result, indent=2, allow_nan=False)+'\n')
+        (output/'summary.txt').write_text(format_summary(result), encoding='utf-8')
 
 
 def interactive_records():
@@ -291,9 +308,20 @@ def main(argv=None):
     parser.add_argument('--starts', type=int, default=50)
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--output', default=None)
-    parser.add_argument('--no-plot', action='store_true')
+    parser.add_argument('--no-plot', action='store_true', help='Skip figures; numerical profiles are still exported unless --no-profiles is used')
+    parser.add_argument('--no-profiles', action='store_true', help='Skip reoptimized uncertainty profiles and compensation maps')
+    parser.add_argument('--profile-points', type=int, default=33, help='Odd number of points per profile/map axis (default: 33; use 21 for faster maps)')
+    parser.add_argument('--profile-extent', type=float, default=3., help='Profile axis half-width in local SE (default: 3); documented exploration scales are used if SE is unavailable')
+    parser.add_argument('--profile-max-nfev', type=int, default=600, help='Maximum evaluations per nuisance-parameter refit (default: 600)')
     args = parser.parse_args(argv)
     try:
+        if not args.no_profiles:
+            if args.profile_points < 3 or args.profile_points % 2 != 1:
+                raise ValueError('--profile-points must be an odd integer >= 3.')
+            if not np.isfinite(args.profile_extent) or args.profile_extent <= 0:
+                raise ValueError('--profile-extent must be finite and positive.')
+            if args.profile_max_nfev < 1:
+                raise ValueError('--profile-max-nfev must be >= 1.')
         if args.interactive:
             if not args.table:
                 source = input('CSV/TSV file? Enter = enter measurements manually: ').strip()
@@ -311,8 +339,10 @@ def main(argv=None):
         result['environment'] = dict(python=platform.python_version(), numpy=np.__version__, scipy=scipy.__version__)
         result['source_sha256'] = hashlib.sha256(Path(args.table).read_bytes()).hexdigest() if args.table else None
         output = args.output or str(Path(args.table).parent/f'results_activation_{Path(args.table).stem}')
-        export_result(result, output, not args.no_plot)
-        print('Resultados:', Path(output).resolve())
+        export_result(result, output, not args.no_plot, profiles=not args.no_profiles,
+                      profile_points=args.profile_points, profile_extent=args.profile_extent,
+                      profile_max_nfev=args.profile_max_nfev)
+        print('Results:', Path(output).resolve())
         print(format_summary(result))
     except (ValueError, OSError, RuntimeError) as exc:
         parser.error(str(exc))
