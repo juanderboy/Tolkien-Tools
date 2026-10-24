@@ -385,7 +385,7 @@ def print_fit_report(
         print(f"k search range: {k_min:g} - {k_max:g}")
     else:
         print(f"k search range: {k_min:g} - {k_max:g} (expanded from {args.k_max:g})")
-    if model == "mbfe3_sulfide_irreversible_binding_autocatalytic":
+    if model in {"mbfe3_sulfide_irreversible_binding_autocatalytic", "femb_disulfide_irreversible"}:
         print("k_off: 0 (fixed; not fitted)")
     for name, value in result.params.items():
         print(f"{PARAMETER_LABELS.get(name, name)}: {value:.10g}")
@@ -404,13 +404,14 @@ def print_fit_report(
         print(f"half-life: {np.log(2) / fitted_k:.10g}")
     if result.selection_diagnostics is not None:
         d=result.selection_diagnostics
-        print(f"FeMb selection: {d['n_candidates']} candidates; {d['n_chemical']} chemically eligible")
+        print(f"FeMb selection ({d.get('selection_mode', 'automatic')}): "
+              f"{d['n_candidates']} candidates; {d['n_chemical']} chemically eligible")
         print("Selected profile RMS fractions:",d['selected']['profile_rms'])
         print("Selected species peaks (nm):",d['selected']['peaks_nm'])
         print("Selected intermediate/product peak epsilon ratio:",
               d['selected']['B_peak_over_C_peak'])
         if not d['chemical_filter_passed']:
-            print("No absorption-comparable candidate passed the chemical filters; inspect species spectra.")
+            print("The selected candidate does not pass the chemical filters; inspect species spectra.")
     print(f"fit error: {result.error:.10g}")
     print(f"minimum recovered spectrum value: {result.spectra.min():.10g}")
     print("first singular values:", " ".join(f"{x:.6g}" for x in result.singular_values[:10]))
@@ -721,6 +722,7 @@ SPECIAL_SPECTRAL_MODELS = (
     "mbfe3_sulfide_irreversible_binding_autocatalytic",
     "mbfe3_sulfide_binding_autocatalytic",
     "mbfe3_hss_no_binding",
+    "femb_disulfide_irreversible",
     "femb_disulfide_reversible",
 )
 
@@ -855,7 +857,7 @@ def main() -> None:
     else:
         print_model_presentation(model)
     apply_model_default_wavelength_range(args, model)
-    if model == "femb_disulfide_reversible":
+    if model in {"femb_disulfide_reversible", "femb_disulfide_irreversible"}:
         preferred_baseline_region = (750.,850.)
     if model in HSS_TRANSSULFURATION_MODELS and interactive:
         args.hss_ratio = ask_hss_ratio(args.hss_ratio)
@@ -1056,6 +1058,10 @@ def main() -> None:
             )
         finally:
             progress.finish()
+
+        if model == "femb_disulfide_reversible" and interactive:
+            from kinet_candidate_explorer import explore_candidates
+            result = explore_candidates(fit_experiment, result, input_filename=input_path.name)
 
         print_fit_report(
             input_path,

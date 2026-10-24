@@ -35,7 +35,7 @@ class MenuTests(unittest.TestCase):
             self.assertTrue(start)
             self.assertEqual(args.model, model)
         for index, model in enumerate(cli.HSS_TRANSSULFURATION_MODELS, 1):
-            start, args = self.choose(['4', '7', str(index), 'data.KD'])
+            start, args = self.choose(['4', '8', str(index), 'data.KD'])
             self.assertTrue(start)
             self.assertEqual(args.model, model)
 
@@ -61,17 +61,17 @@ class MenuTests(unittest.TestCase):
         self.assertIsNone(args.input)
 
     def test_back_from_transsulfuration_returns_to_special_menu(self):
-        start, args = self.choose(['4', '7', '0', '2', 'data.KD'])
+        start, args = self.choose(['4', '8', '0', '2', 'data.KD'])
         self.assertTrue(start)
         self.assertEqual(args.model, 'mbfe3_sulfide_autocatalytic')
 
     def test_second_global_transsulfuration_model(self):
-        start, args = self.choose(['4', '7', '4'], 'manifest.csv')
+        start, args = self.choose(['4', '8', '4'], 'manifest.csv')
         self.assertTrue(start)
         self.assertEqual(args.model, 'mbfe3_sulfide_hss_transsulfuration_no_auto')
 
     def test_global_study_reuses_manifest_from_terminal(self):
-        start, args = self.choose(['4', '7', '3'], 'manifest.csv')
+        start, args = self.choose(['4', '8', '3'], 'manifest.csv')
         self.assertTrue(start)
         self.assertEqual(args.global_manifest, 'manifest.csv')
         self.assertEqual(args.model, 'mbfe3_sulfide_hss_transsulfuration')

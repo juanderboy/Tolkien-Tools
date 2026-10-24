@@ -463,8 +463,9 @@ with time in column 1 are superseded by this layout.
 3. MbFe(III)+HS- irreversible binding
 4. MbFe(III)+HS- reversible binding
 5. MbFe(III)+HSS- postbinding
-6. MbFe(III)+HSS- reversible binding
-7. Transsulfuration reactions
+6. MbFe(III)+HSS- irreversible binding
+7. MbFe(III)+HSS- reversible binding
+8. Transsulfuration reactions
 
 The transsulfuration submenu contains individual fits with and without
 autocatalysis, followed by the corresponding two global fits (options 1–4).
@@ -485,3 +486,46 @@ species columns in positional A/B/C order; a single spectrum column can be
 used for any species. Legacy labeled files remain supported. This also allows
 reusing the numeric pure-spectra exports directly. Supplied command-line
 references are reported without asking for the same species again.
+
+
+### Interactive equivalent-fit explorer
+
+Interactive **MbFe(III)+HSS- reversible binding** fits open a candidate explorer
+after optimization. The slider orders complete RMSE-equivalent solutions by
+increasing intermediate peak absorptivity. The window shows the B family,
+current A/B/C spectra, model concentrations and sparse spectral projections,
+and residuals on a fixed +/-20 mAU scale. Rates, RMSE, concentration discrepancy,
+peak ratio and the 409 nm shoulder diagnostic update together. No optimization
+is performed while moving the slider. Gray background spectra are sampled to
+at most 80 curves for readability; every available candidate is browsable.
+
+Initially only candidates passing the configured chemical bounds are shown.
+**Include chemically flagged fits** makes other RMSE-equivalent solutions
+available, marked explicitly; if none passes, flagged solutions are shown from
+the start. Accepting one records that its chemical bounds were not satisfied.
+**Recommended solution** restores the automatic candidate. **Accept displayed
+solution** uses the entire current fit for reporting and numeric export; the
+selection JSON records manual selection, its chemical status and the original
+recommendation. Closing without accepting retains the automatic result.
+
+This explorer is limited to the solver's sampled candidate families; it does
+not establish exhaustive coverage or uniqueness. It requires an interactive
+Matplotlib backend. Noninteractive/no-plot runs keep automatic selection.
+
+
+### HSS- irreversible binding
+
+Select **Special mechanisms and studies -> MbFe(III)+HSS- irreversible binding**
+(option 6). CLI model: `femb_disulfide_irreversible`. This reuses the reversible
+FeMb/disulfide fitter with `k_off=0` fixed exactly and excluded from optimization;
+only `k_on`, `k_slow` (k_red), and optional file-reference amplitude multipliers
+are fitted. The mechanism is A -> B -> C without autocatalysis, equivalent to
+the generic consecutive irreversible mechanism. The analytical equal-rate limit
+is handled by the existing consecutive-reaction profile implementation.
+
+The preset retains shared NNLS fitting, species reference controls, multistart,
+RMSE comparison and concentration diagnostics. Its intermediate peak window is
+427-433 nm (A: 405-414, C: 432-438), with B/C peak ratio 0.50-0.95. The default
+fit range is 400-650 nm, baseline suggestion 750-850 nm. Reports explicitly
+identify k_off as fixed. Continuous reversible eigenvalue families and their
+interactive explorer are not used for this two-rate mechanism.

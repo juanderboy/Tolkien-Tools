@@ -159,8 +159,13 @@ def write_fit_summary_dat(
     if result.known_spectrum_scales:
         for label, scale in result.known_spectrum_scales.items():
             lines.append(f"known_spectrum_scale_{label}\t{scale:.10g}")
-    if model == "mbfe3_sulfide_irreversible_binding_autocatalytic":
+    if model in {"mbfe3_sulfide_irreversible_binding_autocatalytic", "femb_disulfide_irreversible"}:
         lines.append("fixed_k_off\t0")
+    diagnostics = getattr(result, "selection_diagnostics", None)
+    if diagnostics is not None:
+        lines.append(f"candidate_selection_mode\t{diagnostics.get('selection_mode', 'automatic')}")
+        lines.append(f"selected_candidate_index\t{diagnostics.get('selected_candidate_index', '')}")
+        lines.append(f"selected_chemical_filter_passed\t{diagnostics['chemical_filter_passed']}")
     for name, value in result.params.items():
         lines.append(f"{PARAMETER_LABELS.get(name, name)}\t{value:.10g}")
     if set(result.params) == {"k"}:

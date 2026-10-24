@@ -1750,9 +1750,10 @@ def fit_model(
             "--fix-initial-spectrum cannot be combined with --initial-spectrum-weight"
         )
 
-    if model == "femb_disulfide_reversible":
+    if model in {"femb_disulfide_reversible", "femb_disulfide_irreversible"}:
         from kinet_femb_disulfide import fit_femb_disulfide
         return fit_femb_disulfide(experiment,c0=c0,n_components=n_components,method=method,
+            irreversible=(model == "femb_disulfide_irreversible"),
             known_spectra=known_spectra,known_species=known_species,
             known_spectrum_scale_bounds=known_spectrum_scale_bounds,
             fix_initial_spectrum=fix_initial_spectrum,fix_final_spectrum=fix_final_spectrum,
@@ -1983,7 +1984,7 @@ def fit_model_with_auto_k_max(
         progress_callback=progress_callback,
     )
 
-    if model == "femb_disulfide_reversible":
+    if model in {"femb_disulfide_reversible", "femb_disulfide_irreversible"}:
         limits=result.selection_diagnostics['rate_bounds'].values()
         return result,(min(v[0] for v in limits),max(v[1] for v in limits))
     if not auto_expand:

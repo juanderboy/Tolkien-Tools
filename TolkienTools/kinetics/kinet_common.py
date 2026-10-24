@@ -3,7 +3,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Callable
 
 import numpy as np
 
@@ -25,6 +26,7 @@ SPECIAL_MODEL_LABELS = {
         "MbFe(III)-HS + HSS- transsulfuration without autocatalysis"
     ),
     "mbfe3_sulfide_irreversible_binding_autocatalytic": "MbFe(III)+HS- irreversible binding",
+    "femb_disulfide_irreversible": "MbFe(III)+HSS- irreversible binding",
     "femb_disulfide_reversible": "MbFe(III)+HSS- reversible binding",
 }
 
@@ -36,6 +38,7 @@ MODEL_LABELS = {
 
 
 MODEL_SPECIES = {
+    "femb_disulfide_irreversible": ("MbFeIII", "MbFeIII-S2", "MbFeII"),
     "femb_disulfide_reversible": ("MbFeIII", "MbFeIII-S2", "MbFeII"),
     "a_to_b": ("A", "B"),
     "a_to_b_to_c": ("A", "B", "C"),
@@ -281,6 +284,20 @@ MODEL_PRESENTATIONS["femb_disulfide_reversible"] = {
 }
 
 
+MODEL_PRESENTATIONS["femb_disulfide_irreversible"] = {
+    "scheme": "A -> B -> C (MbFe(III) + HSS-), no autocatalysis",
+    "profiles": ("A(0)=1; B(0)=C(0)=0; nonnegative species spectra",
+                 "Uses the reversible model with k_off fixed exactly to zero"),
+    "parameters": ("k_on: pseudo-first-order irreversible binding",
+                   "k_slow: reduction (k_red); k_off=0 fixed, not optimized"),
+    "notes": ("Select concentration-profile agreement within 0.1% of best spectral RMSE.",
+              "Peak windows: A 405-414, B 427-433, C 432-438 nm.",
+              "Intermediate/product Soret peak epsilon ratio: 0.50-0.95.",
+              "No continuous reversible eigenvalue family is scanned.",
+              "Fit defaults: 400-650 nm; baseline suggestion: 750-850 nm."),
+}
+
+
 
 @dataclass
 class Experiment:
@@ -314,3 +331,5 @@ class FitResult:
     fixed_final_spectrum: bool = False
     selection_diagnostics: dict | None = None
     estimated_concentrations: np.ndarray | None = None
+    candidate_reconstructor: Callable[[int], FitResult] | None = field(default=None, repr=False, compare=False)
+    candidate_spectra: np.ndarray | None = field(default=None, repr=False, compare=False)
