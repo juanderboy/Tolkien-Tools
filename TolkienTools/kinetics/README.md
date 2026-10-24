@@ -25,18 +25,23 @@ on the command line is reused. Data-dependent preprocessing follows loading.
 retain direct access for automated runs.
 
 Each analysis writes to `results_<input-stem>` beside the input file.
-After removing spectra and applying time cutoffs (`t >= t_start` and optional
-`t <= t_end`), corrected time normally becomes:
+The existing reaction-start question now selects the **exact reaction time zero
+(t0)**, as well as the lower time cutoff. Keep spectra with `t_original >= t0`
+and apply:
 
 ```text
-t_corrected = t_original - original_time_of_first_retained_spectrum
+t_corrected = t_original - t0
 ```
 
-The first retained spectrum is therefore at `t = 0`, even if the requested
-start cutoff precedes it. For general A-B-C models, an earlier spectrum can
-instead be selected by its original index as the fixed reactant reference,
-including outside the fitted time window. In that case, corrected time is
-referenced to the selected A spectrum.
+No measurement at t0 is required. For example, entering 20.41 s and retaining
+the next frame at 20.9 s gives that frame a corrected time of 0.49 s. Dropping
+the first eligible frame does not move the chosen origin. The optional final
+cutoff still uses original acquisition times. No additional question is asked.
+
+With no t0 supplied, the first retained frame remains the default zero. The
+legacy noninteractive `--initial-spectrum-index` reference origin applies only
+when no explicit t0 is set; an explicit t0 always takes priority. Selecting a
+spectrum or mean in the interactive reference dialog does not change t0.
 
 The selected model is introduced with its scheme, absorbing species,
 time profiles, parameters and interpretation notes. Special mechanisms use
@@ -227,8 +232,8 @@ tolkien-tools 4 --global-manifest series.csv \
 ```
 
 Defaults: HSS- addition at 47 s, baseline region 750-820 nm and fit window
-410-650 nm. Unlike the ordinary single-file clock, global corrected time
-remains `t_original - 47 s` even if the first retained spectrum is later.
+410-650 nm. Global corrected time remains `t_original - 47 s` even if the
+first retained spectrum is later, consistent with an explicit single-file t0.
 Each experiment has equal total objective weight, preventing longer series
 from dominating.
 
@@ -330,3 +335,98 @@ Numerical outputs accompany the figures:
 
 - `kinet_activation.py`: two-form activation/acid-base fits and local uncertainty.
 - `kinet_activation_profiles.py`: reoptimized profiles and compensation matrices.
+
+## Irreversible binding with autocatalytic reduction
+
+Choose **Special mechanisms and studies → Autocatalytic MbFe(III) reduction
+by sulfides with irreversible binding** (currently special option 6).
+CLI model: `--model mbfe3_sulfide_irreversible_binding_autocatalytic`.
+The reversible binding integrator is reused with `k_off = 0` fixed exactly.
+Only `k_on`, `k_slow` (reduction) and `k_cat` are optimized; spectral reference
+and endpoint options remain available. Reports identify dissociation as fixed,
+not an estimated parameter. This differs from the general A → B → C model,
+which has no autocatalytic reduction term.
+
+## Unified per-species reference dialog
+
+Reactant, each intermediate, and product have one reference question:
+
+- `yes` / `si` / `sí`: fix the first retained spectrum for reactant, or the
+  last retained spectrum for product, after time trimming.
+- `no`: fit that species spectrum freely.
+- An original index (`23`): fix that spectrum.
+- An inclusive range (`23-25`): fix their arithmetic mean.
+- A filename (`reference.dat`): use that species spectrum from the file.
+
+Indices are original, 1-based, before time trimming. Selected measured spectra
+receive the same baseline correction and wavelength crop as the fitted data,
+then are averaged and fixed in shape and amplitude. Explicitly dropped spectra
+cannot be selected. An intermediate has no automatic first/last endpoint:
+choose an index, range, filename, or `no`.
+
+**Every reference file must contain molar absorptivity epsilon in M^-1 cm^-1,
+already baseline-corrected, for the module's 1-cm optical path convention.**
+This requirement is displayed immediately after a filename is entered. Raw
+absorbance files must be converted to epsilon before loading. The model
+multiplies epsilon by the entered concentration; a small concentration such as
+1e-5 M is not the amplitude-correction multiplier.
+
+Only for file references, one follow-up asks whether to adjust amplitude:
+`no` / Enter keeps the multiplier fixed at 1; `yes` fits a positive relative
+multiplier constrained to **0.7–1.3**. There are no questions about units or
+custom amplitude limits. Spectral shape is preserved and no additional baseline
+is applied to files. Each species has its own amplitude choice, remembered when
+revising preprocessing. Optimization uses log space, not a multiplier grid.
+
+Files may be plain whitespace-separated wavelength/epsilon pairs, or labeled
+multi-spectrum files with `# wavelength A B C` (positional model labels).
+Single-spectrum files can be used for any species. Paths may contain spaces;
+case is preserved. Interpolation is restricted to the common measured wavelength
+coverage, without extrapolation. Reports record selections, file paths/hashes,
+epsilon units, amplitude mode, bounds and the fitted multipliers. Reference files
+are protected against output overwrites.
+
+Interactive references do not redefine the entered t0. The legacy
+noninteractive `--initial-spectrum-index` time-origin convention applies only
+when no explicit t0 is supplied. Existing `--known-spectrum`
+CLI imports retain their historical adjustable-scale behavior and broad bounds;
+the simplified interactive file workflow uses the fixed 0.7–1.3 interval.
+
+## FeMb + disulfides with reversible binding
+
+Special mechanisms option 7 (`--model femb_disulfide_reversible`) implements
+A <-> B -> C without autocatalysis, with three species and no extra selection
+questions. Defaults: fit 400–650 nm, baseline suggestion 750–850 nm; references
+and the exact t0 use the existing dialogs.
+
+The backend uses four deterministic starting points, followed by sampling
+reversible families with the same two kinetic eigenvalues. Spectra are profiled
+by NNLS. Candidates must lie within 0.1% of the lowest spectral RMSE. The
+system-specific chemical filters require:
+
+- Soret maxima A 405–414, B 423–430, C 432–438 nm.
+- Intermediate/product Soret peak epsilon ratio between 0.50 and 0.95.
+
+Among eligible candidates, selection minimizes the mean of the three squared
+RMS discrepancies between kinetic fractions and per-frame nonnegative,
+sum-one spectral estimates. Profiles are evaluated from t >= 5 s, or over all
+frames if none reach 5 s. These estimates use the same species spectra and
+measure internal consistency rather than independent validation.
+
+The peak windows and amplitude interval are assumptions of this preset, not
+universal spectral constraints. The B409/max ratio is diagnostic only; shoulder
+shape is not constrained. No derivative criterion or interactive candidate
+selector is currently implemented. If no absorption-comparable candidate passes
+the chemical filters, a candidate is returned with an explicit failure flag for
+inspection; chemical acceptance must not be inferred from its return alone.
+
+Preset rate bounds (s^-1): k_on 1e-5–5, k_off 1e-7–5, k_slow/k_red 1e-6–1.
+These bounds replace the generic --k-min/--k-max settings and are not
+automatically expanded. Known-file amplitude bounds remain respected.
+
+The preset exports `_selection.json` with all candidates, criteria and selection
+status, plus `_spectral_concentrations.dat`, and overlays spectral estimates on
+the kinetic profiles. Reversible models with unknown species spectra can admit
+substantially different rate/spectrum combinations with similar residuals.
+Inspect species spectra and local concentration discrepancies; a selected
+solution is not evidence that its individual rates are uniquely identified.

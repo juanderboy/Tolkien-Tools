@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import uuid
 from pathlib import Path
 
@@ -111,7 +112,9 @@ def write_fit_summary_dat(
     ]
     if reaction_start_time is not None:
         lines.append(f"reaction_start_cutoff_original_units\t{reaction_start_time:.10g}")
-        lines.append("corrected_time_zero\tfirst_kept_spectrum")
+    if hasattr(args, "reaction_time_origin"):
+        lines.append(f"reaction_time_origin_original_units\t{args.reaction_time_origin:.17g}")
+        lines.append("corrected_time_formula\tt_original - reaction_time_origin")
     if reaction_end_time is not None:
         lines.append(f"reaction_end_time_original_units\t{reaction_end_time:.10g}")
     if model in HSS_TRANSSULFURATION_MODELS:
@@ -122,11 +125,35 @@ def write_fit_summary_dat(
         lines.append(f"fixed_initial_spectrum\t{result.species_labels[0]}")
     if result.fixed_final_spectrum:
         lines.append(f"fixed_final_spectrum\t{result.species_labels[-1]}")
+    for endpoint in ("initial", "final"):
+        indices = getattr(args, f"{endpoint}_reference_indices", None)
+        if indices is not None:
+            lines.append(f"fixed_{endpoint}_reference_original_indices_1based\t"
+                         + ",".join(str(i+1) for i in indices))
+            lines.append(f"fixed_{endpoint}_reference_aggregation\tarithmetic_mean")
+    for reference in getattr(args, "fixed_reference_files", []):
+        label = reference['species']
+        prefix = "adjustable" if reference['fit_amplitude'] else "fixed"
+        lines.extend([f"{prefix}_reference_file_{label}\t{reference['path']}",
+                      f"{prefix}_reference_sha256_{label}\t{reference['sha256']}",
+                      f"{prefix}_reference_units_{label}\t{reference['units']}",
+                      f"reference_amplitude_mode_{label}\t{prefix}"])
+        if reference['fit_amplitude']:
+            lo,hi = reference['amplitude_bounds']
+            lines.extend([f"reference_amplitude_min_{label}\t{lo:.10g}",
+                          f"reference_amplitude_max_{label}\t{hi:.10g}"])
+        else:
+            lines.append(f"reference_amplitude_multiplier_{label}\t1")
+    for label, indices in getattr(args, "intermediate_reference_indices", {}).items():
+        lines.append(f"fixed_reference_original_indices_{label}\t"
+                     + ",".join(str(i+1) for i in indices))
     if result.known_species:
         lines.append("known_spectral_shapes\t" + ",".join(result.known_species))
     if result.known_spectrum_scales:
         for label, scale in result.known_spectrum_scales.items():
             lines.append(f"known_spectrum_scale_{label}\t{scale:.10g}")
+    if model == "mbfe3_sulfide_irreversible_binding_autocatalytic":
+        lines.append("fixed_k_off\t0")
     for name, value in result.params.items():
         lines.append(f"{PARAMETER_LABELS.get(name, name)}\t{value:.10g}")
     if set(result.params) == {"k"}:
@@ -215,6 +242,16 @@ def export_final_fit_outputs(
         reaction_end_time,
         model,
     )
+    if result.selection_diagnostics is not None:
+        selection_path=ensure_writable_output_path(prefix.with_name(f"{prefix.name}_selection.json"))
+        selection_path.write_text(json.dumps(result.selection_diagnostics,indent=2)+"\n")
+        estimate_path=ensure_writable_output_path(prefix.with_name(f"{prefix.name}_spectral_concentrations.dat"))
+        if estimate_path.resolve() in protected_resolved:
+            estimate_path=ensure_writable_output_path(prefix.with_name(f"{prefix.name}_fit_spectral_concentrations.dat"))
+        np.savetxt(estimate_path,np.column_stack((experiment.t,result.estimated_concentrations.T)),
+                   delimiter="\t",header=concentration_header)
+        print(f"  Selection diagnostics: {selection_path}")
+        print(f"  Spectral concentration estimates: {estimate_path}")
     plot_result(
         experiment,
         result,

@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
@@ -65,7 +65,7 @@ def read_known_spectrum_file(path: Path) -> tuple[np.ndarray, dict[str, np.ndarr
     """Read a pure-spectra table and return wavelength plus spectra by label."""
     try:
         labels = _read_header_labels(path)
-        data = np.loadtxt(path, comments="#")
+        data = np.loadtxt(path, comments="#", encoding="utf-8-sig")
     except ValueError as exc:
         raise ValueError(
             f"{path}: unrecognized file format; check the input file"
@@ -156,3 +156,40 @@ def build_known_spectra_matrix(
             known_labels.append(model_label)
 
     return known, tuple(known_labels)
+
+
+@dataclass(frozen=True)
+class FixedSpectrumFile:
+    """A molar spectrum selected in the unified per-species dialog."""
+    path: Path
+    alias: str | None = None
+    fit_amplitude: bool = False
+    units: str = field(default="M^-1 cm^-1", init=False)
+    amplitude_bounds: tuple[float, float] = field(default=(0.7, 1.3), init=False)
+
+
+def read_fixed_spectrum_file(reference: FixedSpectrumFile):
+    """Read existing labeled files or a plain two-column molar spectrum."""
+    try:
+        wavelength, spectra = read_known_spectrum_file(reference.path)
+    except ValueError:
+        # Headerless files are unambiguous only with one spectrum column.
+        data = np.loadtxt(reference.path, comments="#", encoding="utf-8-sig", ndmin=2)
+        if data.shape[1] != 2:
+            raise ValueError(f"{reference.path}: use wavelength + one molar spectrum, "
+                             "or a labeled '# wavelength A B C' header")
+        data = data[np.argsort(data[:, 0])]
+        wavelength, values = data[:, 0], data[:, 1]
+    else:
+        if reference.alias in spectra:
+            values = spectra[reference.alias]
+        elif len(spectra) == 1:
+            values = next(iter(spectra.values()))
+        else:
+            raise ValueError(f"{reference.path}: column {reference.alias} not found; "
+                             "use the positional A/B/C label or a single-spectrum file")
+    if len(wavelength) < 2 or not np.isfinite(wavelength).all() or not np.isfinite(values).all():
+        raise ValueError(f"{reference.path}: spectrum must have at least two finite points")
+    if np.any(np.diff(wavelength) <= 0):
+        raise ValueError(f"{reference.path}: wavelengths must be unique")
+    return wavelength, values

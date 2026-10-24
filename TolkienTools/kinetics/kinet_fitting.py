@@ -507,6 +507,7 @@ def direct_parameter_names_and_bounds(
     kinetic_names: tuple[str, ...],
     known_species: tuple[str, ...],
     k_bounds: tuple[float, float],
+    known_spectrum_scale_bounds: dict[str, tuple[float, float]] | None = None,
 ) -> tuple[tuple[str, ...], dict[str, tuple[float, float]]]:
     """Build optimizer names and per-parameter bounds for k and scale factors."""
     scale_names = tuple(known_scale_parameter_name(label) for label in known_species)
@@ -515,8 +516,12 @@ def direct_parameter_names_and_bounds(
         name: k_bounds
         for name in kinetic_names
     }
-    for name in scale_names:
-        parameter_bounds[name] = (1e-4, 1e4)
+    for label, name in zip(known_species, scale_names):
+        bounds = (known_spectrum_scale_bounds or {}).get(label, (1e-4, 1e4))
+        lo, hi = bounds
+        if not np.isfinite([lo, hi]).all() or not 0 < lo < hi:
+            raise ValueError(f"Invalid amplitude bounds for {label}: {bounds}")
+        parameter_bounds[name] = (lo, hi)
     return parameter_names, parameter_bounds
 
 
@@ -529,6 +534,7 @@ def fit_a_to_b_nnls(
     initial_spectrum_weight: float = 0.0,
     known_spectra: np.ndarray | None = None,
     known_species: tuple[str, ...] = (),
+    known_spectrum_scale_bounds: dict[str, tuple[float, float]] | None = None,
 ) -> FitResult:
     """Fit k by direct reconstruction with nonnegative spectra."""
     q, w, singular_values = factor_analysis(experiment.absorbance, n_components)
@@ -594,6 +600,7 @@ def fit_a_to_b_direct(
     result_model: str = "a_to_b",
     concentration_profile=concentration_profile_a_to_b,
     progress_callback: ProgressCallback | None = None,
+    known_spectrum_scale_bounds: dict[str, tuple[float, float]] | None = None,
 ) -> FitResult:
     """Fit A -> B by direct reconstruction with NNLS or pseudoinverse spectra."""
     q, w, singular_values = factor_analysis(experiment.absorbance, n_components)
@@ -605,6 +612,7 @@ def fit_a_to_b_direct(
         ("k",),
         known_species,
         k_bounds,
+        known_spectrum_scale_bounds,
     )
 
     def objective(params: dict[str, float]) -> float:
@@ -692,6 +700,7 @@ def fit_a_to_b(
     fix_initial_spectrum: bool = False,
     fix_final_spectrum: bool = False,
     progress_callback: ProgressCallback | None = None,
+    known_spectrum_scale_bounds: dict[str, tuple[float, float]] | None = None,
 ) -> FitResult:
     """Fit A -> B with NNLS spectra."""
     if method != "nnls":
@@ -705,6 +714,7 @@ def fit_a_to_b(
         initial_spectrum_weight=initial_spectrum_weight,
         known_spectra=known_spectra,
         known_species=known_species,
+        known_spectrum_scale_bounds=known_spectrum_scale_bounds,
         fix_initial_spectrum=fix_initial_spectrum,
         fix_final_spectrum=fix_final_spectrum,
         progress_callback=progress_callback,
@@ -723,6 +733,7 @@ def fit_mbfe3_sulfide_autocatalytic(
     fix_initial_spectrum: bool = False,
     fix_final_spectrum: bool = False,
     progress_callback: ProgressCallback | None = None,
+    known_spectrum_scale_bounds: dict[str, tuple[float, float]] | None = None,
 ) -> FitResult:
     """Fit global autocatalytic MbFeIII-SH reduction by sulfide."""
     if method != "nnls":
@@ -735,6 +746,7 @@ def fit_mbfe3_sulfide_autocatalytic(
         ("k_slow", "k_auto"),
         known_species,
         k_bounds,
+        known_spectrum_scale_bounds,
     )
 
     def objective(params: dict[str, float]) -> float:
@@ -834,6 +846,8 @@ def fit_mbfe3_sulfide_binding_autocatalytic(
     fix_initial_spectrum: bool = False,
     fix_final_spectrum: bool = False,
     progress_callback: ProgressCallback | None = None,
+    irreversible: bool = False,
+    known_spectrum_scale_bounds: dict[str, tuple[float, float]] | None = None,
 ) -> FitResult:
     """Fit MbFeIII binding HS- before autocatalytic sulfide reduction."""
     if method != "nnls":
@@ -844,17 +858,22 @@ def fit_mbfe3_sulfide_binding_autocatalytic(
             "The MbFeIII sulfide binding/autocatalytic fit requires exactly 3 components."
         )
 
+    model = ("mbfe3_sulfide_irreversible_binding_autocatalytic" if irreversible
+             else "mbfe3_sulfide_binding_autocatalytic")
+    kinetic_names = (("k_on", "k_slow", "k_cat") if irreversible
+                     else ("k_on", "k_off", "k_slow", "k_cat"))
     parameter_names, parameter_bounds = direct_parameter_names_and_bounds(
-        ("k_on", "k_off", "k_slow", "k_cat"),
+        kinetic_names,
         known_species,
         k_bounds,
+        known_spectrum_scale_bounds,
     )
 
     def objective(params: dict[str, float]) -> float:
         c_trial = concentration_profile_mbfe3_sulfide_binding_autocatalytic(
             experiment.t,
             params["k_on"],
-            params["k_off"],
+            (0.0 if irreversible else params["k_off"]),
             params["k_slow"],
             params["k_cat"],
             c0=c0,
@@ -867,7 +886,7 @@ def fit_mbfe3_sulfide_binding_autocatalytic(
             known_spectra=known_spectra,
             known_spectrum_scales=known_scale_parameters(
                 params,
-                "mbfe3_sulfide_binding_autocatalytic",
+                model,
                 known_species,
             ),
             fix_initial_spectrum=fix_initial_spectrum,
@@ -879,29 +898,28 @@ def fit_mbfe3_sulfide_binding_autocatalytic(
         parameter_names,
         k_bounds,
         parameter_bounds=parameter_bounds,
-        initial_parameters={
+        initial_parameters={name: value for name, value in {
             "k_on": 7e-1,
             "k_off": 1e-2,
             "k_slow": 5e-4,
             "k_cat": 2e-5,
-        },
+        }.items() if name in kinetic_names},
         progress_callback=progress_callback,
         optimizer="powell",
-        # In log space Powell explores all four kinetic dimensions from the
-        # supplied starting point. The generic multistart search repeats
-        # essentially the same fit for this model at substantial cost.
-        max_starts=1,
+        # Preserve the historical reversible search. The irreversible model
+        # uses multistart to avoid poor minima from the reversible seed.
+        max_starts=None if irreversible else 1,
     )
     known_scale_report = extract_known_scale_report(params, known_species)
     known_scale_by_index = known_scale_parameters(
         params,
-        "mbfe3_sulfide_binding_autocatalytic",
+        model,
         known_species,
     )
     c = concentration_profile_mbfe3_sulfide_binding_autocatalytic(
         experiment.t,
         params["k_on"],
-        params["k_off"],
+        (0.0 if irreversible else params["k_off"]),
         params["k_slow"],
         params["k_cat"],
         c0=c0,
@@ -931,12 +949,12 @@ def fit_mbfe3_sulfide_binding_autocatalytic(
 
     return FitResult(
         method=method,
-        model="mbfe3_sulfide_binding_autocatalytic",
+        model=model,
         params={
             name: params[name]
-            for name in ("k_on", "k_off", "k_slow", "k_cat")
+            for name in kinetic_names
         },
-        species_labels=MODEL_SPECIES["mbfe3_sulfide_binding_autocatalytic"],
+        species_labels=MODEL_SPECIES[model],
         c=c,
         spectra=spectra,
         absorbance_calc=absorbance_calc,
@@ -965,6 +983,7 @@ def fit_mbfe3_sulfide_hss_transsulfuration(
     fix_initial_spectrum: bool = False,
     fix_final_spectrum: bool = False,
     progress_callback: ProgressCallback | None = None,
+    known_spectrum_scale_bounds: dict[str, tuple[float, float]] | None = None,
 ) -> FitResult:
     """Fit MbFeIII-HS reduction with added HSS- transsulfuration."""
     if method != "nnls":
@@ -981,6 +1000,7 @@ def fit_mbfe3_sulfide_hss_transsulfuration(
         ("k_slow", "k_auto", "k_ts", "k_fast"),
         known_species,
         k_bounds,
+        known_spectrum_scale_bounds,
     )
     parameter_bounds["k_ts"] = (1e-8, 1e4)
 
@@ -1089,6 +1109,7 @@ def fit_mbfe3_sulfide_hss_transsulfuration_no_auto(
     fix_initial_spectrum: bool = False,
     fix_final_spectrum: bool = False,
     progress_callback: ProgressCallback | None = None,
+    known_spectrum_scale_bounds: dict[str, tuple[float, float]] | None = None,
 ) -> FitResult:
     """Fit HSS- transsulfuration with a slow path and no autocatalysis."""
     if method != "nnls":
@@ -1108,6 +1129,7 @@ def fit_mbfe3_sulfide_hss_transsulfuration_no_auto(
         kinetic_names,
         known_species,
         k_bounds,
+        known_spectrum_scale_bounds,
     )
     parameter_bounds["k_ts"] = (1e-8, 1e4)
 
@@ -1213,6 +1235,7 @@ def fit_a_to_b_to_c_direct(
     fix_initial_spectrum: bool = False,
     fix_final_spectrum: bool = False,
     progress_callback: ProgressCallback | None = None,
+    known_spectrum_scale_bounds: dict[str, tuple[float, float]] | None = None,
 ) -> FitResult:
     """Fit A -> B -> C by direct reconstruction with NNLS or pseudoinverse spectra."""
     q, w, singular_values = factor_analysis(experiment.absorbance, n_components)
@@ -1246,6 +1269,7 @@ def fit_a_to_b_to_c_direct(
         ("k1", "k2"),
         known_species,
         k_bounds,
+        known_spectrum_scale_bounds,
     )
     params = optimize_kinetic_parameters(
         objective,
@@ -1319,6 +1343,7 @@ def fit_a_to_b_to_c_mcr_als(
     kinetic_weight: float = 1.0,
     max_iter: int = 200,
     progress_callback: ProgressCallback | None = None,
+    known_spectrum_scale_bounds: dict[str, tuple[float, float]] | None = None,
 ) -> FitResult:
     """Fit A -> B -> C with a soft kinetic MCR-ALS refinement.
 
@@ -1345,6 +1370,7 @@ def fit_a_to_b_to_c_mcr_als(
         initial_spectrum_weight=initial_spectrum_weight,
         known_spectra=known_spectra,
         known_species=known_species,
+        known_spectrum_scale_bounds=known_spectrum_scale_bounds,
         fix_initial_spectrum=fix_initial_spectrum,
         fix_final_spectrum=fix_final_spectrum,
         progress_callback=progress_callback,
@@ -1428,6 +1454,7 @@ def fit_a_to_b_to_c_nnls(
     known_species: tuple[str, ...] = (),
     fix_initial_spectrum: bool = False,
     fix_final_spectrum: bool = False,
+    known_spectrum_scale_bounds: dict[str, tuple[float, float]] | None = None,
 ) -> FitResult:
     """Fit A -> B -> C by direct reconstruction with nonnegative spectra."""
     return fit_a_to_b_to_c_direct(
@@ -1439,6 +1466,7 @@ def fit_a_to_b_to_c_nnls(
         initial_spectrum_weight=initial_spectrum_weight,
         known_spectra=known_spectra,
         known_species=known_species,
+        known_spectrum_scale_bounds=known_spectrum_scale_bounds,
         fix_initial_spectrum=fix_initial_spectrum,
             fix_final_spectrum=fix_final_spectrum,
     )
@@ -1457,6 +1485,7 @@ def fit_a_rev_b_to_c_direct(
     fix_initial_spectrum: bool = False,
     fix_final_spectrum: bool = False,
     progress_callback: ProgressCallback | None = None,
+    known_spectrum_scale_bounds: dict[str, tuple[float, float]] | None = None,
 ) -> FitResult:
     """Fit A <-> B -> C by direct reconstruction with NNLS or pseudoinverse spectra."""
     q, w, singular_values = factor_analysis(experiment.absorbance, n_components)
@@ -1491,6 +1520,7 @@ def fit_a_rev_b_to_c_direct(
         ("k1", "k_1", "k2"),
         known_species,
         k_bounds,
+        known_spectrum_scale_bounds,
     )
     params = optimize_kinetic_parameters(
         objective,
@@ -1565,6 +1595,7 @@ def fit_a_rev_b_to_c_mcr_als(
     kinetic_weight: float = 1.0,
     max_iter: int = 200,
     progress_callback: ProgressCallback | None = None,
+    known_spectrum_scale_bounds: dict[str, tuple[float, float]] | None = None,
 ) -> FitResult:
     """Fit A <-> B -> C with a soft kinetic MCR-ALS refinement."""
     if kinetic_weight < 0:
@@ -1585,6 +1616,7 @@ def fit_a_rev_b_to_c_mcr_als(
         initial_spectrum_weight=initial_spectrum_weight,
         known_spectra=known_spectra,
         known_species=known_species,
+        known_spectrum_scale_bounds=known_spectrum_scale_bounds,
         fix_initial_spectrum=fix_initial_spectrum,
         fix_final_spectrum=fix_final_spectrum,
         progress_callback=progress_callback,
@@ -1667,6 +1699,7 @@ def fit_a_rev_b_to_c_nnls(
     known_species: tuple[str, ...] = (),
     fix_initial_spectrum: bool = False,
     fix_final_spectrum: bool = False,
+    known_spectrum_scale_bounds: dict[str, tuple[float, float]] | None = None,
 ) -> FitResult:
     """Fit A <-> B -> C by direct reconstruction with nonnegative spectra."""
     return fit_a_rev_b_to_c_direct(
@@ -1678,6 +1711,7 @@ def fit_a_rev_b_to_c_nnls(
         initial_spectrum_weight=initial_spectrum_weight,
         known_spectra=known_spectra,
         known_species=known_species,
+        known_spectrum_scale_bounds=known_spectrum_scale_bounds,
         fix_initial_spectrum=fix_initial_spectrum,
             fix_final_spectrum=fix_final_spectrum,
     )
@@ -1700,6 +1734,7 @@ def fit_model(
     mcr_kinetic_weight: float = 1.0,
     mcr_max_iter: int = 200,
     progress_callback: ProgressCallback | None = None,
+    known_spectrum_scale_bounds: dict[str, tuple[float, float]] | None = None,
 ) -> FitResult:
     """Fit the selected kinetic model."""
     if method not in {"nnls", "mcr_als"}:
@@ -1715,6 +1750,13 @@ def fit_model(
             "--fix-initial-spectrum cannot be combined with --initial-spectrum-weight"
         )
 
+    if model == "femb_disulfide_reversible":
+        from kinet_femb_disulfide import fit_femb_disulfide
+        return fit_femb_disulfide(experiment,c0=c0,n_components=n_components,method=method,
+            known_spectra=known_spectra,known_species=known_species,
+            known_spectrum_scale_bounds=known_spectrum_scale_bounds,
+            fix_initial_spectrum=fix_initial_spectrum,fix_final_spectrum=fix_final_spectrum,
+            initial_spectrum_weight=initial_spectrum_weight,progress_callback=progress_callback)
     if model == "a_to_b":
         return fit_a_to_b(
             experiment,
@@ -1725,6 +1767,7 @@ def fit_model(
             initial_spectrum_weight=initial_spectrum_weight,
             known_spectra=known_spectra,
             known_species=known_species,
+            known_spectrum_scale_bounds=known_spectrum_scale_bounds,
             fix_initial_spectrum=fix_initial_spectrum,
             fix_final_spectrum=fix_final_spectrum,
             progress_callback=progress_callback,
@@ -1739,6 +1782,7 @@ def fit_model(
             initial_spectrum_weight=initial_spectrum_weight,
             known_spectra=known_spectra,
             known_species=known_species,
+            known_spectrum_scale_bounds=known_spectrum_scale_bounds,
             fix_initial_spectrum=fix_initial_spectrum,
             fix_final_spectrum=fix_final_spectrum,
             result_model=model,
@@ -1754,13 +1798,16 @@ def fit_model(
             initial_spectrum_weight=initial_spectrum_weight,
             known_spectra=known_spectra,
             known_species=known_species,
+            known_spectrum_scale_bounds=known_spectrum_scale_bounds,
             fix_initial_spectrum=fix_initial_spectrum,
             fix_final_spectrum=fix_final_spectrum,
             progress_callback=progress_callback,
         )
-    if model == "mbfe3_sulfide_binding_autocatalytic":
+    if model in {"mbfe3_sulfide_binding_autocatalytic",
+                 "mbfe3_sulfide_irreversible_binding_autocatalytic"}:
         return fit_mbfe3_sulfide_binding_autocatalytic(
             experiment,
+            irreversible=(model == "mbfe3_sulfide_irreversible_binding_autocatalytic"),
             c0=c0,
             n_components=n_components,
             method=method,
@@ -1768,6 +1815,7 @@ def fit_model(
             initial_spectrum_weight=initial_spectrum_weight,
             known_spectra=known_spectra,
             known_species=known_species,
+            known_spectrum_scale_bounds=known_spectrum_scale_bounds,
             fix_initial_spectrum=fix_initial_spectrum,
             fix_final_spectrum=fix_final_spectrum,
             progress_callback=progress_callback,
@@ -1783,6 +1831,7 @@ def fit_model(
             initial_spectrum_weight=initial_spectrum_weight,
             known_spectra=known_spectra,
             known_species=known_species,
+            known_spectrum_scale_bounds=known_spectrum_scale_bounds,
             fix_initial_spectrum=fix_initial_spectrum,
             fix_final_spectrum=fix_final_spectrum,
             progress_callback=progress_callback,
@@ -1798,6 +1847,7 @@ def fit_model(
             initial_spectrum_weight=initial_spectrum_weight,
             known_spectra=known_spectra,
             known_species=known_species,
+            known_spectrum_scale_bounds=known_spectrum_scale_bounds,
             fix_initial_spectrum=fix_initial_spectrum,
             fix_final_spectrum=fix_final_spectrum,
             progress_callback=progress_callback,
@@ -1812,6 +1862,7 @@ def fit_model(
                 initial_spectrum_weight=initial_spectrum_weight,
                 known_spectra=known_spectra,
                 known_species=known_species,
+                known_spectrum_scale_bounds=known_spectrum_scale_bounds,
                 fix_initial_spectrum=fix_initial_spectrum,
                 fix_final_spectrum=fix_final_spectrum,
                 kinetic_weight=mcr_kinetic_weight,
@@ -1827,6 +1878,7 @@ def fit_model(
             initial_spectrum_weight=initial_spectrum_weight,
             known_spectra=known_spectra,
             known_species=known_species,
+            known_spectrum_scale_bounds=known_spectrum_scale_bounds,
             fix_initial_spectrum=fix_initial_spectrum,
             fix_final_spectrum=fix_final_spectrum,
             progress_callback=progress_callback,
@@ -1841,6 +1893,7 @@ def fit_model(
                 initial_spectrum_weight=initial_spectrum_weight,
                 known_spectra=known_spectra,
                 known_species=known_species,
+                known_spectrum_scale_bounds=known_spectrum_scale_bounds,
                 fix_initial_spectrum=fix_initial_spectrum,
                 fix_final_spectrum=fix_final_spectrum,
                 kinetic_weight=mcr_kinetic_weight,
@@ -1856,6 +1909,7 @@ def fit_model(
             initial_spectrum_weight=initial_spectrum_weight,
             known_spectra=known_spectra,
             known_species=known_species,
+            known_spectrum_scale_bounds=known_spectrum_scale_bounds,
             fix_initial_spectrum=fix_initial_spectrum,
             fix_final_spectrum=fix_final_spectrum,
             progress_callback=progress_callback,
@@ -1901,6 +1955,7 @@ def fit_model_with_auto_k_max(
     mcr_kinetic_weight: float = 1.0,
     mcr_max_iter: int = 200,
     progress_callback: ProgressCallback | None = None,
+    known_spectrum_scale_bounds: dict[str, tuple[float, float]] | None = None,
 ) -> tuple[FitResult, tuple[float, float]]:
     """Fit a model, expanding the upper k bound when fitted constants hit it."""
     k_min, k_max = validate_k_bounds(k_bounds)
@@ -1920,6 +1975,7 @@ def fit_model_with_auto_k_max(
         initial_spectrum_weight=initial_spectrum_weight,
         known_spectra=known_spectra,
         known_species=known_species,
+        known_spectrum_scale_bounds=known_spectrum_scale_bounds,
         fix_initial_spectrum=fix_initial_spectrum,
             fix_final_spectrum=fix_final_spectrum,
         mcr_kinetic_weight=mcr_kinetic_weight,
@@ -1927,6 +1983,9 @@ def fit_model_with_auto_k_max(
         progress_callback=progress_callback,
     )
 
+    if model == "femb_disulfide_reversible":
+        limits=result.selection_diagnostics['rate_bounds'].values()
+        return result,(min(v[0] for v in limits),max(v[1] for v in limits))
     if not auto_expand:
         return result, (k_min, k_max)
 
@@ -1956,6 +2015,7 @@ def fit_model_with_auto_k_max(
             initial_spectrum_weight=initial_spectrum_weight,
             known_spectra=known_spectra,
             known_species=known_species,
+            known_spectrum_scale_bounds=known_spectrum_scale_bounds,
             fix_initial_spectrum=fix_initial_spectrum,
             fix_final_spectrum=fix_final_spectrum,
             mcr_kinetic_weight=mcr_kinetic_weight,

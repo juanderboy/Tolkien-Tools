@@ -683,7 +683,7 @@ def plot_preprocessed_experiment_preview(
     if reaction_start_time is None:
         start_text = "time zero = first kept spectrum"
     else:
-        start_text = f"t >= {reaction_start_time:g}; zero = first kept spectrum"
+        start_text = f"t_original >= {reaction_start_time:g}; exact t0 = {reaction_start_time:g}"
     if reaction_end_time is None:
         end_text = "no reaction-end cut"
     else:
@@ -821,7 +821,10 @@ def plot_result(
 
     ax_conc = axes["concentrations"]
     for i, label in enumerate(result.species_labels):
-        ax_conc.plot(experiment.t, result.c[i, :], label=label)
+        line,=ax_conc.plot(experiment.t, result.c[i, :], label=label)
+        if result.estimated_concentrations is not None:
+            ax_conc.scatter(experiment.t,result.estimated_concentrations[i],s=9,
+                            color=line.get_color(),alpha=.55)
     ax_conc.set_xlabel("Time")
     ax_conc.set_ylabel("Concentration (M)")
     ax_conc.set_title("Concentration profiles")

@@ -61,8 +61,8 @@ def concentration_profile_mbfe3_sulfide_binding_autocatalytic(
     The coordinated complex then reduces to MbFeII with the same apparent
     autocatalytic term used by the two-species sulfide model.
     """
-    if k_on <= 0 or k_off <= 0 or k_slow <= 0 or k_cat <= 0:
-        raise ValueError("All kinetic constants must be positive")
+    if k_on <= 0 or k_off < 0 or k_slow <= 0 or k_cat <= 0:
+        raise ValueError("k_on, k_slow and k_cat must be positive; k_off must be nonnegative")
     if c0 <= 0:
         raise ValueError("c0 must be positive")
 

@@ -37,13 +37,13 @@ class MenuTests(unittest.TestCase):
 
     def test_thermal_dispatch_preserves_provided_file(self):
         with patch.object(activation, 'main') as run:
-            start, args = self.choose(['4', '6'], 'rates.csv')
+            start, args = self.choose(['4', str(len(SPECIAL_MODEL_LABELS) + 1)], 'rates.csv')
         self.assertFalse(start)
         run.assert_called_once_with(['rates.csv', '--interactive'])
 
     def test_thermal_without_input_defers_prompt_to_study(self):
         with patch.object(activation, 'main') as run:
-            self.choose(['4', '6'])
+            self.choose(['4', str(len(SPECIAL_MODEL_LABELS) + 1)])
         run.assert_called_once_with(['--interactive'])
 
     def test_back_and_invalid_choices_do_not_request_data(self):
@@ -57,7 +57,7 @@ class MenuTests(unittest.TestCase):
         self.assertIsNone(args.input)
 
     def test_global_study_reuses_manifest_from_terminal(self):
-        start, args = self.choose(['4', '7'], 'manifest.csv')
+        start, args = self.choose(['4', str(len(SPECIAL_MODEL_LABELS) + 2)], 'manifest.csv')
         self.assertTrue(start)
         self.assertEqual(args.global_manifest, 'manifest.csv')
         self.assertEqual(args.model, 'mbfe3_sulfide_hss_transsulfuration')

@@ -25,6 +25,7 @@ from kinet_fitting import fit_model_with_auto_k_max, is_near_bound
 from kinet_io import read_experiment, resolve_input_file
 from kinet_known_spectra import (
     KnownSpectrumSpec,
+    FixedSpectrumFile,
     build_known_spectra_matrix,
     known_spectra_wavelength_range,
     parse_known_spectrum_spec,
@@ -184,7 +185,9 @@ def apply_model_default_wavelength_range(
     model: str,
 ) -> None:
     """Use the Soret/visible window by default for special mechanisms."""
-    if model in SPECIAL_MODEL_LABELS:
+    if model == "femb_disulfide_reversible":
+        default_min, default_max = 400.0, 650.0
+    elif model in SPECIAL_MODEL_LABELS:
         default_min, default_max = 385.0, 650.0
     else:
         default_min, default_max = 320.0, 820.0
@@ -202,17 +205,7 @@ def endpoint_spectrum_menu_labels(
     """Return species labels exposed by the endpoint-spectrum dialog."""
     first_species = MODEL_SPECIES[model][0]
     last_species = MODEL_SPECIES[model][-1]
-    initial_models = {
-        "a_to_b_to_c",
-        "a_rev_b_to_c",
-        "mbfe3_sulfide_binding_autocatalytic",
-    }
-    initial_label = (
-        first_species
-        if model in initial_models
-        and (interactive or initial_spectrum_index is not None)
-        else None
-    )
+    initial_label = first_species if interactive or initial_spectrum_index is not None else None
     final_label = last_species if interactive else None
     return initial_label, final_label
 
@@ -222,41 +215,42 @@ def parse_known_spectrum_specs(texts: list[str]) -> list[KnownSpectrumSpec]:
     return [parse_known_spectrum_spec(text) for text in texts]
 
 
-def ask_known_spectra_choice(model: str) -> list[KnownSpectrumSpec]:
-    """Ask whether any species spectra should be held fixed."""
-    species_text = ", ".join(MODEL_SPECIES[model])
-    print()
-    choice = input(
-        "Do you have known spectra for any species? "
-        f"Model species: {species_text}. Enter/n = no: "
-    ).strip().lower()
-    if choice in {"", "n", "no"}:
-        return []
-    if choice not in {"s", "si", "sí", "y", "yes"}:
-        return [parse_known_spectrum_spec(choice)]
 
-    specs: list[KnownSpectrumSpec] = []
-    print("Enter species and filename, e.g. A B spectra.dat")
-    print("Use one line per file. Enter = finish.")
-    while True:
-        text = input("Known species and filename: ").strip()
-        if not text:
-            break
-        specs.append(parse_known_spectrum_spec(text))
-    return specs
+def install_endpoint_references(known_spectra, known_species, species_labels,
+                                initial_reference, final_reference, c0):
+    """Insert fixed absorbance references without creating adjustable scales."""
+    for column, label, reference in (
+        (0, species_labels[0], initial_reference),
+        (-1, species_labels[-1], final_reference),
+    ):
+        if reference is None:
+            continue
+        if label in known_species:
+            raise ValueError(f"A reference spectrum for {label} was provided twice")
+        if known_spectra is None:
+            known_spectra = np.full((len(reference), len(species_labels)), np.nan)
+        else:
+            known_spectra = known_spectra.copy()
+        known_spectra[:, column] = reference / c0
+    return known_spectra
 
 
-def print_known_spectra_report(known_species: tuple[str, ...], model: str) -> None:
+def print_known_spectra_report(known_species: tuple[str, ...], model: str,
+                               fixed_references: tuple[str, ...] = ()) -> None:
     """Print which spectral shapes are known and which spectra remain fitted."""
-    if not known_species:
+    if not known_species and not fixed_references:
         print("Known spectra: none; all species will be fitted.")
         return
-    fitted = tuple(label for label in MODEL_SPECIES[model] if label not in known_species)
-    print("Known spectral shapes with adjustable scale:", ", ".join(known_species))
+    fitted = tuple(label for label in MODEL_SPECIES[model]
+                   if label not in known_species and label not in fixed_references)
+    if known_species:
+        print("Known spectral shapes with adjustable scale:", ", ".join(known_species))
+    if fixed_references:
+        print("References fixed in shape and amplitude:", ", ".join(fixed_references))
     if fitted:
         print("Spectra fitted:", ", ".join(fitted))
     else:
-        print("Spectra fitted: none; all species are known shapes with adjustable scale.")
+        print("Spectra fitted: none; all species have supplied references.")
     print()
 
 
@@ -275,15 +269,18 @@ def print_initial_spectrum_report(fix_initial_spectrum: bool, model: str) -> Non
     print()
 
 
-def print_initial_reference_report(index: int | None, experiment: Experiment) -> None:
+def print_initial_reference_report(index: int | tuple[int, ...] | None, experiment: Experiment) -> None:
     """Report an initial spectrum selected independently of the fit window."""
     if index is None:
         return
-    print(
-        "Initial reference spectrum: "
-        f"original index {index + 1}, t = {experiment.t[index]:g}; "
-        "used as A while remaining spectra are fitted."
-    )
+    if isinstance(index, FixedSpectrumFile):
+        mode = "adjustable amplitude" if index.fit_amplitude else "fixed amplitude"
+        print(f"Initial reference from file ({mode}): {index.path}")
+        return
+    indices = [index] if isinstance(index, int) else list(index)
+    print("Initial reference fixed in shape and amplitude: original spectra "
+          + ", ".join(str(i+1) for i in indices)
+          + (" (mean)" if len(indices) > 1 else ""))
     print()
 
 
@@ -373,7 +370,7 @@ def print_fit_report(
         print(
             f"reaction start cutoff: t >= {reaction_start_time:g} original time units"
         )
-        print("corrected time zero: first kept spectrum")
+        print(f"corrected time: t_original - {reaction_start_time:g} (exact t0)")
     if reaction_end_time is not None:
         print(f"reaction end time: {reaction_end_time:g} original time units")
     print(f"c0: {c0:g} M")
@@ -402,6 +399,8 @@ def print_fit_report(
         print(f"k search range: {k_min:g} - {k_max:g}")
     else:
         print(f"k search range: {k_min:g} - {k_max:g} (expanded from {args.k_max:g})")
+    if model == "mbfe3_sulfide_irreversible_binding_autocatalytic":
+        print("k_off: 0 (fixed; not fitted)")
     for name, value in result.params.items():
         print(f"{PARAMETER_LABELS.get(name, name)}: {value:.10g}")
         if is_near_bound(value, k_min):
@@ -417,6 +416,15 @@ def print_fit_report(
     if set(result.params) == {"k"}:
         fitted_k = next(iter(result.params.values()))
         print(f"half-life: {np.log(2) / fitted_k:.10g}")
+    if result.selection_diagnostics is not None:
+        d=result.selection_diagnostics
+        print(f"FeMb selection: {d['n_candidates']} candidates; {d['n_chemical']} chemically eligible")
+        print("Selected profile RMS fractions:",d['selected']['profile_rms'])
+        print("Selected species peaks (nm):",d['selected']['peaks_nm'])
+        print("Selected intermediate/product peak epsilon ratio:",
+              d['selected']['B_peak_over_C_peak'])
+        if not d['chemical_filter_passed']:
+            print("No absorption-comparable candidate passed the chemical filters; inspect species spectra.")
     print(f"fit error: {result.error:.10g}")
     print(f"minimum recovered spectrum value: {result.spectra.min():.10g}")
     print("first singular values:", " ".join(f"{x:.6g}" for x in result.singular_values[:10]))
@@ -550,8 +558,8 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=None,
         help=(
-            "Original start-time cutoff. Spectra with t >= this value are kept, "
-            "and the first kept spectrum becomes corrected time zero."
+            "Exact reaction time zero in original time units. Keep spectra with "
+            "t_original >= t0 and use t = t_original - t0, even between frames."
         ),
     )
     parser.add_argument(
@@ -827,11 +835,11 @@ def main() -> None:
         if not use_menu:
             model = ask_model_choice(args.model)
         print_model_presentation(model)
-        if not known_specs:
-            known_specs = ask_known_spectra_choice(model)
     else:
         print_model_presentation(model)
     apply_model_default_wavelength_range(args, model)
+    if model == "femb_disulfide_reversible":
+        preferred_baseline_region = (750.,850.)
     if model in HSS_TRANSSULFURATION_MODELS and interactive:
         args.hss_ratio = ask_hss_ratio(args.hss_ratio)
     if (
@@ -913,14 +921,18 @@ def main() -> None:
 
     first_species = MODEL_SPECIES[model][0]
     last_species = MODEL_SPECIES[model][-1]
+    supplied_species = {
+        MODEL_SPECIES[model]["ABC".index(alias)]
+        for spec in known_specs for alias in spec.species
+        if "ABC".index(alias) < len(MODEL_SPECIES[model])}
     initial_spectrum_unavailable_reason = None
-    if any(first_species in spec.species for spec in known_specs):
+    if first_species in supplied_species:
         initial_spectrum_unavailable_reason = (
             "The first model spectrum was already supplied as a known spectrum "
             f"({first_species}); it cannot also be fixed from the first experimental spectrum."
         )
     final_spectrum_unavailable_reason = None
-    if any(last_species in spec.species for spec in known_specs):
+    if last_species in supplied_species:
         final_spectrum_unavailable_reason = (
             "The last model spectrum was already supplied as a known spectrum "
             f"({last_species}); it cannot also be fixed from the last experimental spectrum."
@@ -942,6 +954,7 @@ def main() -> None:
         fix_final_spectrum,
         initial_spectrum_index,
         initial_reference_spectrum,
+        final_reference_spectrum,
     ) = preprocess_experiment(
         args,
         experiment,
@@ -954,6 +967,8 @@ def main() -> None:
         final_spectrum_unavailable_reason=final_spectrum_unavailable_reason,
         overview_auto_region=overview_auto_region,
         preferred_baseline_region=preferred_baseline_region,
+        species_labels=MODEL_SPECIES[model],
+        supplied_species=supplied_species,
     )
     if allowed_work_range is not None:
         print(f"Fit wavelength range selected: {work_range[0]:g}-{work_range[1]:g} nm")
@@ -964,22 +979,35 @@ def main() -> None:
         MODEL_SPECIES[model],
         cropped.wavelength,
     )
-    if initial_reference_spectrum is not None:
-        if first_species in known_species:
-            raise ValueError(
-                f"An initial reference spectrum for {first_species} was provided twice"
-            )
+    known_spectra = install_endpoint_references(
+        known_spectra, known_species, MODEL_SPECIES[model],
+        initial_reference_spectrum, final_reference_spectrum, c0)
+    for column, reference in args.additional_fixed_references.items():
+        label = MODEL_SPECIES[model][column]
+        if label in known_species:
+            raise ValueError(f"Reference spectrum for {label} was provided twice")
         if known_spectra is None:
-            known_spectra = np.full(
-                (cropped.wavelength.size, len(MODEL_SPECIES[model])),
-                np.nan,
-            )
-        known_spectra[:, 0] = initial_reference_spectrum
-        known_species = (*known_species, first_species)
-    print_known_spectra_report(known_species, model)
+            known_spectra = np.full((cropped.wavelength.size, len(MODEL_SPECIES[model])), np.nan)
+        known_spectra[:, column] = reference
+    fixed_references = tuple(label for label, reference, fixed in (
+        (first_species, initial_reference_spectrum, fix_initial_spectrum),
+        (last_species, final_reference_spectrum, fix_final_spectrum))
+        if reference is not None or fixed) + tuple(
+            MODEL_SPECIES[model][i] for i in args.additional_fixed_references)
+    adjustable_files = tuple(reference['species'] for reference in args.fixed_reference_files
+                             if reference['fit_amplitude'])
+    known_species = (*known_species, *adjustable_files)
+    fixed_references = tuple(label for label in fixed_references if label not in adjustable_files)
+    print_known_spectra_report(known_species, model, fixed_references)
     print_initial_spectrum_report(fix_initial_spectrum, model)
     print_initial_reference_report(initial_spectrum_index, experiment)
     print_final_spectrum_report(fix_final_spectrum, model)
+    if final_reference_spectrum is not None and args.final_reference_indices is not None:
+        print("Product reference fixed in shape and amplitude: original spectra "
+              + ", ".join(str(i+1) for i in args.final_reference_indices))
+    for reference in args.fixed_reference_files:
+        mode = "adjustable amplitude" if reference["fit_amplitude"] else "fixed amplitude"
+        print(f"Reference for {reference['species']} ({reference['units']}, {mode}): {reference['path']}")
     n_components = len(MODEL_SPECIES[model])
 
     fit_experiment = cropped
@@ -1001,6 +1029,8 @@ def main() -> None:
                 initial_spectrum_weight=args.initial_spectrum_weight,
                 known_spectra=known_spectra,
                 known_species=known_species,
+                known_spectrum_scale_bounds={r["species"]: r["amplitude_bounds"]
+                    for r in args.fixed_reference_files if r["fit_amplitude"]},
                 fix_initial_spectrum=fix_initial_spectrum,
                 fix_final_spectrum=fix_final_spectrum,
                 mcr_kinetic_weight=args.mcr_kinetic_weight,
@@ -1049,7 +1079,8 @@ def main() -> None:
         reaction_start_time,
         reaction_end_time,
         model,
-        protected_input_paths=[spec.path for spec in known_specs],
+        protected_input_paths=([spec.path for spec in known_specs]
+                               + [Path(r["path"]) for r in args.fixed_reference_files]),
     )
 
 

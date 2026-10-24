@@ -4,10 +4,14 @@
 from __future__ import annotations
 
 import argparse
+import re
+from pathlib import Path
+import hashlib
 
 import numpy as np
 
 from kinet_common import Experiment
+from kinet_known_spectra import FixedSpectrumFile, read_fixed_spectrum_file
 
 
 def baseline_correct(absorbance: np.ndarray, n_points: int = 20) -> np.ndarray:
@@ -336,17 +340,20 @@ def apply_preprocessing_choices(
     pruned = drop_spectra(experiment, drop_indices)
     pruned = end_reaction_at_time(pruned, reaction_end_time)
     pruned = start_reaction_at_time(pruned, reaction_start_time)
-    if initial_spectrum_index is None:
-        pruned = zero_time_at_first_spectrum(pruned)
-    else:
+    if reaction_start_time is not None:
+        # The entered t0 is exact, even between measured frames or after drops.
+        origin = float(reaction_start_time)
+    elif initial_spectrum_index is not None:
+        # Keep the legacy CLI reference origin only when no explicit t0 exists.
         if initial_spectrum_index < 0 or initial_spectrum_index >= experiment.t.size:
             raise ValueError("Initial reference spectrum index is outside the experiment")
-        reference_time = float(experiment.t[initial_spectrum_index])
-        pruned = Experiment(
-            t=pruned.t - reference_time,
-            wavelength=pruned.wavelength,
-            absorbance=pruned.absorbance,
-        )
+        origin = float(experiment.t[initial_spectrum_index])
+    else:
+        origin = float(pruned.t[0])
+    args.reaction_time_origin = origin
+    pruned = Experiment(t=pruned.t - origin, wavelength=pruned.wavelength,
+                        absorbance=pruned.absorbance)
+
     if pruned.t.size < 2:
         raise ValueError("Time selection must leave at least two spectra")
     corrected_absorbance, used_region = corrected_absorbance_from_baseline_choice(
@@ -367,23 +374,35 @@ def apply_preprocessing_choices(
 
 def prepare_initial_reference_spectrum(
     experiment: Experiment,
-    spectrum_index: int | None,
+    spectrum_index: int | tuple[int, ...] | FixedSpectrumFile | None,
     baseline_mode: str,
     baseline_region: tuple[float, float] | None,
     baseline_points: int,
     baseline_window: float,
     work_range: tuple[float, float],
     used_region: tuple[float, float] | None,
+    c0: float = 1.0,
 ) -> np.ndarray | None:
-    """Return one baseline-corrected, cropped pre-fit reference spectrum."""
+    """Correct selected original spectra, then average without changing fit times."""
     if spectrum_index is None:
         return None
-    if spectrum_index < 0 or spectrum_index >= experiment.t.size:
-        raise ValueError("Initial reference spectrum index is outside the experiment")
+    if isinstance(spectrum_index, FixedSpectrumFile):
+        wavelength, values = read_fixed_spectrum_file(spectrum_index)
+        target = experiment.wavelength[(experiment.wavelength >= work_range[0]) &
+                                      (experiment.wavelength <= work_range[1])]
+        if not len(target) or target[0] < wavelength[0] or target[-1] > wavelength[-1]:
+            raise ValueError(f"{spectrum_index.path}: reference does not cover the fitted wavelengths")
+        # Imported values are already baseline-corrected molar spectra; do not
+        # apply the experimental baseline or normalize them a second time.
+        interpolated = np.interp(target, wavelength, values)
+        return interpolated * c0
+    indices = [spectrum_index] if isinstance(spectrum_index, int) else list(spectrum_index)
+    if not indices or min(indices) < 0 or max(indices) >= experiment.t.size:
+        raise ValueError("Reference spectrum indices are outside the experiment")
     one = Experiment(
-        t=experiment.t[spectrum_index : spectrum_index + 1],
+        t=experiment.t[indices],
         wavelength=experiment.wavelength,
-        absorbance=experiment.absorbance[:, spectrum_index : spectrum_index + 1],
+        absorbance=experiment.absorbance[:, indices],
     )
     effective_mode = "region" if used_region is not None else baseline_mode
     corrected, _ = corrected_absorbance_from_baseline_choice(
@@ -394,8 +413,74 @@ def prepare_initial_reference_spectrum(
         baseline_window,
     )
     corrected_one = Experiment(t=one.t, wavelength=one.wavelength, absorbance=corrected)
-    return crop_wavelengths(corrected_one, work_range[0], work_range[1]).absorbance[:, 0]
+    return crop_wavelengths(corrected_one, work_range[0], work_range[1]).absorbance.mean(axis=1)
 
+
+
+def parse_endpoint_reference(text, n_spectra, dropped_indices):
+    """Return original zero-based indices for one spectrum or an inclusive range."""
+    if not re.fullmatch(r"\d+(?:\s*-\s*\d+)?", text.strip()):
+        raise ValueError("Use yes, no, an original index (23), or an inclusive range (23-25)")
+    parts = [int(x.strip()) for x in text.split('-')]
+    first, last = parts[0], parts[-1]
+    if first < 1 or last > n_spectra or first > last:
+        raise ValueError(f"Reference indices must be increasing and within 1-{n_spectra}")
+    indices = tuple(range(first-1, last))
+    if set(indices).intersection(dropped_indices):
+        raise ValueError("A reference selection contains a dropped spectrum")
+    return indices
+
+
+def ask_endpoint_reference(label, endpoint, original_time, n_spectra, dropped_indices,
+                           default_fixed=False, default_indices=None, alias=None):
+    """Read a common initial/product reference choice."""
+    if isinstance(default_indices, FixedSpectrumFile):
+        default = str(default_indices.path)
+    elif isinstance(default_indices, int):
+        default = str(default_indices + 1)
+    elif default_indices:
+        first, last = default_indices[0]+1, default_indices[-1]+1
+        default = str(first) if first == last else f"{first}-{last}"
+    else:
+        default = 'yes' if default_fixed else 'no'
+    endpoint_help = (f"yes = {endpoint} retained spectrum (original t = {original_time:g}); "
+                     if endpoint in {"first", "last"} else "")
+    print(f"{label}: {endpoint_help}no = fit freely; index/range = original "
+          "spectrum/mean; file.dat = molar spectrum (amplitude choice follows).")
+    text = input(f"Fixed spectrum for {label}? Enter = {default}: ").strip() or default
+    choice = text.lower()
+    if choice in {"s", "si", "sí", "y", "yes"}:
+        if endpoint not in {"first", "last"}:
+            raise ValueError("For an intermediate, specify an index, range or spectrum file")
+        return True, None
+    if choice in {"n", "no"}:
+        return False, None
+    if re.fullmatch(r"\d+(?:\s*-\s*\d+)?", text):
+        return False, parse_endpoint_reference(text, n_spectra, dropped_indices)
+    path = Path(text.strip('"').strip("'")).expanduser()
+    if not path.is_file():
+        raise ValueError(f"Reference file not found: {path}")
+    reference = FixedSpectrumFile(path.resolve(), alias)
+    read_fixed_spectrum_file(reference)
+    previous = (default_indices if isinstance(default_indices, FixedSpectrumFile)
+                and default_indices.path.resolve() == reference.path else None)
+    print(f"Reference file: {reference.path}")
+    print("Expected values: molar absorptivity epsilon, in M^-1 cm^-1, "
+          "already baseline-corrected (1 cm optical path).")
+    default_adjust = (isinstance(default_indices, FixedSpectrumFile)
+                      and default_indices.path.resolve() == reference.path
+                      and default_indices.fit_amplitude)
+    default_text = "yes" if default_adjust else "no"
+    while True:
+        amplitude = input(
+            f"Adjust the amplitude of {label} during fitting? "
+            f"yes = fit a multiplier from 0.7 to 1.3; no = keep multiplier 1. "
+            f"Enter = {default_text}: ").strip().lower() or default_text
+        if amplitude in {"s", "si", "sí", "y", "yes", "n", "no"}:
+            break
+        print("Amplitude choice must be yes or no.")
+    fit_amplitude = amplitude in {"s", "si", "sí", "y", "yes"}
+    return False, FixedSpectrumFile(reference.path, alias, fit_amplitude)
 
 
 def ask_preprocessing_choices(
@@ -410,24 +495,30 @@ def ask_preprocessing_choices(
     initial_spectrum_label: str | None = None,
     default_fix_initial_spectrum: bool = False,
     initial_spectrum_unavailable_reason: str | None = None,
-    default_initial_spectrum_index: int | None = None,
+    default_initial_spectrum_index: int | tuple[int, ...] | FixedSpectrumFile | None = None,
     final_spectrum_label: str | None = None,
     default_fix_final_spectrum: bool = False,
     final_spectrum_unavailable_reason: str | None = None,
     overview_auto_region: tuple[float, float] | None = None,
     preferred_baseline_region: tuple[float, float] | None = None,
+    default_final_spectrum_indices: tuple[int, ...] | None = None,
+    species_labels: tuple[str, ...] | None = None,
+    default_intermediate_references: dict | None = None,
+    supplied_species: set[str] | None = None,
 ) -> tuple[
     list[int],
     float | None,
     float | None,
     bool,
-    int | None,
+    int | tuple[int, ...] | FixedSpectrumFile | None,
     bool,
     str,
     tuple[float, float] | None,
     int,
     tuple[float, float],
     float,
+    tuple[int, ...] | FixedSpectrumFile | None,
+    dict,
 ]:
     """Ask which spectra/baseline region/wavelength range to use."""
     print()
@@ -440,12 +531,13 @@ def ask_preprocessing_choices(
 
     dropped = drop_spectra(experiment, drop_indices)
     if default_reaction_start_time is None:
-        start_default_text = "no cutoff"
+        start_default_text = "first retained spectrum (no cutoff)"
     else:
         start_default_text = f"{default_reaction_start_time:g}"
     start_text = input(
-        "Reaction start time? "
-        "Use spectra with t >= t_start; the first retained spectrum defines t=0. "
+        "Reaction time zero t0 (original time units)? "
+        "Keep spectra with t_original >= t0; use exactly t = t_original - t0, "
+        "even if no spectrum was measured at t0. "
         f"Enter = {start_default_text}: "
     )
     reaction_start_time = parse_reaction_start_time_choice(
@@ -475,71 +567,53 @@ def ask_preprocessing_choices(
     fix_initial_spectrum = default_fix_initial_spectrum
     initial_spectrum_index = default_initial_spectrum_index
     fix_final_spectrum = default_fix_final_spectrum
+    final_spectrum_indices = default_final_spectrum_indices
     if initial_spectrum_label is not None:
         if initial_spectrum_unavailable_reason is not None:
-            print()
             print(initial_spectrum_unavailable_reason)
-            fix_initial_spectrum = False
+            fix_initial_spectrum, initial_spectrum_index = False, None
         else:
-            default_text = "yes" if default_fix_initial_spectrum else "no"
-            print()
-            print("Initial spectrum option")
-            print(
-                "Reactant spectrum: no = do not fix; "
-                f"yes = first retained spectrum (original t = {first_kept_original_time:.6g}); "
-                "or enter the original index of an earlier spectrum."
-            )
-            initial_text = input(
-                f"Fixed spectrum for {initial_spectrum_label}? "
-                f"Enter = {default_text}: "
-            ).strip().lower()
-            if not initial_text:
-                fix_initial_spectrum = default_fix_initial_spectrum
-                initial_spectrum_index = default_initial_spectrum_index
-            elif initial_text in {"s", "si", "sí", "y", "yes"}:
-                fix_initial_spectrum = True
-                initial_spectrum_index = None
-            elif initial_text in {"n", "no"}:
-                fix_initial_spectrum = False
-                initial_spectrum_index = None
-            elif initial_text.isdigit():
-                original_index = int(initial_text)
-                if not 1 <= original_index <= experiment.t.size:
-                    raise ValueError(
-                        f"Initial spectrum index must be between 1 and {experiment.t.size}"
-                    )
-                initial_spectrum_index = original_index - 1
-                if initial_spectrum_index in drop_indices:
-                    raise ValueError("The initial reference spectrum was dropped")
-                fix_initial_spectrum = False
-            else:
-                raise ValueError("Initial spectrum choice must be no, yes, s, or an index")
+            fix_initial_spectrum, initial_spectrum_index = ask_endpoint_reference(
+                initial_spectrum_label, "first", first_kept_original_time,
+                experiment.t.size, drop_indices, default_fix_initial_spectrum,
+                default_initial_spectrum_index, alias="A")
+    intermediate_references = {}
+    for column, label in enumerate(species_labels or ()):
+        if column in {0, len(species_labels)-1} or label in (supplied_species or set()):
+            continue
+        _, selection = ask_endpoint_reference(label, "intermediate", 0,
+            experiment.t.size, drop_indices,
+            default_indices=(default_intermediate_references or {}).get(column),
+            alias="ABC"[column])
+        if selection is not None:
+            intermediate_references[column] = selection
     if final_spectrum_label is not None:
         if final_spectrum_unavailable_reason is not None:
-            print()
             print(final_spectrum_unavailable_reason)
-            fix_final_spectrum = False
+            fix_final_spectrum, final_spectrum_indices = False, None
         else:
-            default_text = "yes" if default_fix_final_spectrum else "no"
-            print()
-            print("Final spectrum option")
-            print(
-                "Last spectrum after time trimming: "
-                f"index {dropped.t.size}, corrected t = {dropped.t[-1]:.6g}."
-            )
-            final_text = input(
-                "Use this last spectrum as the fixed product spectrum for "
-                f"{final_spectrum_label} and fit only the remaining spectra? "
-                f"Enter = {default_text}: "
-            ).strip().lower()
-            if not final_text:
-                fix_final_spectrum = default_fix_final_spectrum
-            elif final_text in {"s", "si", "sí", "y", "yes"}:
-                fix_final_spectrum = True
-            elif final_text in {"n", "no"}:
-                fix_final_spectrum = False
-            else:
-                raise ValueError("Final spectrum choice must be yes or no")
+            last_time = float(dropped.t[-1] + first_kept_original_time)
+            fix_final_spectrum, final_spectrum_indices = ask_endpoint_reference(
+                final_spectrum_label, "last", last_time, experiment.t.size,
+                drop_indices, default_fix_final_spectrum, default_final_spectrum_indices,
+                alias="ABC"[len(species_labels)-1] if species_labels else "B")
+
+    selections = [initial_spectrum_index, final_spectrum_indices, *intermediate_references.values()]
+    for selection in selections:
+        if isinstance(selection, FixedSpectrumFile):
+            wavelength, _ = read_fixed_spectrum_file(selection)
+            lo = max(float(experiment.wavelength[0]), float(wavelength[0]))
+            hi = min(float(experiment.wavelength[-1]), float(wavelength[-1]))
+            if allowed_work_range is not None:
+                lo, hi = max(lo, allowed_work_range[0]), min(hi, allowed_work_range[1])
+            if lo >= hi:
+                raise ValueError("Reference files and experiment have no common wavelength range")
+            allowed_work_range = (lo, hi)
+    if allowed_work_range is not None:
+        default_work_range = (max(default_work_range[0], allowed_work_range[0]),
+                              min(default_work_range[1], allowed_work_range[1]))
+        if default_work_range[0] >= default_work_range[1]:
+            default_work_range = allowed_work_range
 
     if preferred_baseline_region is None:
         auto_region = suggest_auto_baseline_region(
@@ -643,6 +717,8 @@ def ask_preprocessing_choices(
         baseline_points,
         work_range,
         c0,
+        final_spectrum_indices,
+        intermediate_references,
     )
 
 
@@ -659,6 +735,8 @@ def preprocess_experiment(
     final_spectrum_unavailable_reason: str | None = None,
     overview_auto_region: tuple[float, float] | None = None,
     preferred_baseline_region: tuple[float, float] | None = None,
+    species_labels: tuple[str, ...] | None = None,
+    supplied_species: set[str] | None = None,
 ) -> tuple[
     Experiment,
     tuple[float, float],
@@ -667,7 +745,8 @@ def preprocess_experiment(
     float | None,
     bool,
     bool,
-    int | None,
+    int | tuple[int, ...] | FixedSpectrumFile | None,
+    np.ndarray | None,
     np.ndarray | None,
 ]:
     """Apply optional spectrum removal and baseline correction."""
@@ -690,6 +769,11 @@ def preprocess_experiment(
     reaction_end_time = args.reaction_end_time
     fix_initial_spectrum = default_fix_initial_spectrum
     fix_final_spectrum = default_fix_final_spectrum
+    final_spectrum_indices = None
+    intermediate_references = {}
+    args.additional_fixed_references = {}
+    args.fixed_reference_files = []
+    args.intermediate_reference_indices = {}
     initial_spectrum_index = getattr(args, "initial_spectrum_index", None)
     if initial_spectrum_index is not None:
         initial_spectrum_index -= 1
@@ -715,6 +799,8 @@ def preprocess_experiment(
         )
 
     if args.no_plot or args.skip_preprocess_dialog:
+        args.initial_reference_indices = ([initial_spectrum_index] if initial_spectrum_index is not None else None)
+        args.final_reference_indices = None
         corrected, _, used_region = apply_preprocessing_choices(
             args,
             experiment,
@@ -746,6 +832,7 @@ def preprocess_experiment(
                 work_range,
                 used_region,
             ),
+            None,
         )
 
     while True:
@@ -761,6 +848,8 @@ def preprocess_experiment(
             baseline_points,
             work_range,
             c0,
+            final_spectrum_indices,
+            intermediate_references,
         ) = ask_preprocessing_choices(
             experiment,
             baseline_points,
@@ -774,6 +863,10 @@ def preprocess_experiment(
             default_fix_initial_spectrum=fix_initial_spectrum,
             initial_spectrum_unavailable_reason=initial_spectrum_unavailable_reason,
             default_initial_spectrum_index=initial_spectrum_index,
+            default_final_spectrum_indices=final_spectrum_indices,
+            species_labels=species_labels,
+            supplied_species=supplied_species,
+            default_intermediate_references=intermediate_references,
             final_spectrum_label=final_spectrum_label,
             default_fix_final_spectrum=fix_final_spectrum,
             final_spectrum_unavailable_reason=final_spectrum_unavailable_reason,
@@ -790,7 +883,7 @@ def preprocess_experiment(
             baseline_region,
             baseline_points,
             work_range,
-            initial_spectrum_index=initial_spectrum_index,
+            initial_spectrum_index=None,
         )
         from kinet_plotting import plot_preprocessed_experiment_preview
 
@@ -809,6 +902,29 @@ def preprocess_experiment(
             "Enter/y = yes, n = revise trimming/baseline/range: "
         ).strip().lower()
         if approve in {"", "s", "si", "sí", "y", "yes"}:
+            args.initial_reference_indices = (None if isinstance(initial_spectrum_index, FixedSpectrumFile)
+                else [initial_spectrum_index] if isinstance(initial_spectrum_index, int) else initial_spectrum_index)
+            args.final_reference_indices = (None if isinstance(final_spectrum_indices, FixedSpectrumFile)
+                                            else final_spectrum_indices)
+            args.fixed_reference_files = []
+            labels = species_labels or (initial_spectrum_label, final_spectrum_label)
+            selections = {0: initial_spectrum_index, len(labels)-1: final_spectrum_indices,
+                          **intermediate_references}
+            for column, selection in selections.items():
+                if isinstance(selection, FixedSpectrumFile):
+                    args.fixed_reference_files.append(dict(species=labels[column],
+                        path=str(selection.path), alias=selection.alias, units=selection.units,
+                        amplitude_bounds=selection.amplitude_bounds,
+                        fit_amplitude=selection.fit_amplitude,
+                        sha256=hashlib.sha256(selection.path.read_bytes()).hexdigest()))
+            args.additional_fixed_references = {
+                column: prepare_initial_reference_spectrum(experiment, selection,
+                    baseline_mode, baseline_region, baseline_points, args.baseline_window,
+                    work_range, used_region, c0=c0) / c0
+                for column, selection in intermediate_references.items()}
+            args.intermediate_reference_indices = {
+                labels[column]: selection for column, selection in intermediate_references.items()
+                if not isinstance(selection, FixedSpectrumFile)}
             return (
                 corrected,
                 work_range,
@@ -827,7 +943,12 @@ def preprocess_experiment(
                     args.baseline_window,
                     work_range,
                     used_region,
+                    c0=c0,
                 ),
+                prepare_initial_reference_spectrum(
+                    experiment, final_spectrum_indices, baseline_mode,
+                    baseline_region, baseline_points, args.baseline_window,
+                    work_range, used_region, c0=c0),
             )
         if approve in {"n", "no"}:
             print()

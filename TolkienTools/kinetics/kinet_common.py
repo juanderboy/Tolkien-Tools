@@ -29,6 +29,10 @@ SPECIAL_MODEL_LABELS = {
         "MbFe(III)-HS reduction by added HSS- with transsulfuration "
         "without autocatalysis"
     ),
+    "mbfe3_sulfide_irreversible_binding_autocatalytic": (
+        "Autocatalytic MbFe(III) reduction by sulfides with irreversible binding"
+    ),
+    "femb_disulfide_reversible": "FeMb + disulfides with reversible binding",
 }
 
 MODEL_LABELS = {
@@ -38,12 +42,14 @@ MODEL_LABELS = {
 
 
 MODEL_SPECIES = {
+    "femb_disulfide_reversible": ("MbFeIII", "MbFeIII-S2", "MbFeII"),
     "a_to_b": ("A", "B"),
     "a_to_b_to_c": ("A", "B", "C"),
     "a_rev_b_to_c": ("A", "B", "C"),
     "mbfe3_hss_no_binding": ("MbFeIII-HSS", "MbFeII"),
     "mbfe3_sulfide_autocatalytic": ("MbFeIII-SH", "MbFeII"),
     "mbfe3_sulfide_binding_autocatalytic": ("MbFeIII", "MbFeIII-HS", "MbFeII"),
+    "mbfe3_sulfide_irreversible_binding_autocatalytic": ("MbFeIII", "MbFeIII-HS", "MbFeII"),
     "mbfe3_sulfide_hss_transsulfuration": ("MbFeIII-Sx", "MbFeII"),
     "mbfe3_sulfide_hss_transsulfuration_no_auto": ("MbFeIII-Sx", "MbFeII"),
 }
@@ -246,6 +252,41 @@ MODEL_PRESENTATIONS = {
 }
 
 
+MODEL_PRESENTATIONS["mbfe3_sulfide_irreversible_binding_autocatalytic"] = {
+    "scheme": "MbFeIII + HS- -> MbFeIII-HS -> MbFeII, with autocatalytic acceleration",
+    "profiles": (
+        "d[MbFeIII]/dt = -k_on*[MbFeIII]",
+        "x(t) = [MbFeII](t) / [Mb]total",
+        "d[MbFeIII-HS]/dt = k_on*[MbFeIII] - (k_slow + k_cat*x)*[MbFeIII-HS]",
+        "d[MbFeII]/dt = (k_slow + k_cat*x)*[MbFeIII-HS]",
+    ),
+    "parameters": (
+        "k_on: apparent pseudo-first-order HS- coordination rate constant",
+        "k_slow,obs: apparent slow reduction rate constant",
+        "k_cat: apparent phenomenological autocatalytic acceleration",
+    ),
+    "notes": (
+        "k_off = 0 is fixed, not fitted.",
+        "Uses the reversible binding integrator with dissociation disabled.",
+        "k_cat must not be interpreted directly as k_Red(HSS-).",
+    ),
+}
+
+
+MODEL_PRESENTATIONS["femb_disulfide_reversible"] = {
+    "scheme": "A <-> B -> C (FeMb + disulfides), no autocatalysis",
+    "profiles": ("A(0)=1; B(0)=C(0)=0; nonnegative species spectra",
+                 "Explore equivalent reversible eigenvalue families"),
+    "parameters": ("k_on: pseudo-first-order binding", "k_off: dissociation",
+                   "k_slow: reduction (k_red)"),
+    "notes": ("Select concentration-profile agreement within 0.1% of best spectral RMSE.",
+              "Peak windows: A 405-414, B 423-430, C 432-438 nm.",
+              "Intermediate/product Soret peak epsilon ratio: 0.50-0.95.",
+              "B409/max is diagnostic only; the shoulder shape is not constrained.",
+              "Uses documented FeMb rate bounds; automatic generic k-max expansion is disabled."),
+}
+
+
 
 @dataclass
 class Experiment:
@@ -277,3 +318,5 @@ class FitResult:
     known_spectrum_scales: dict[str, float] | None = None
     fixed_initial_spectrum: bool = False
     fixed_final_spectrum: bool = False
+    selection_diagnostics: dict | None = None
+    estimated_concentrations: np.ndarray | None = None
