@@ -45,7 +45,8 @@ spectrum or mean in the interactive reference dialog does not change t0.
 
 The selected model is introduced with its scheme, absorbing species,
 time profiles, parameters and interpretation notes. Special mechanisms use
-385-650 nm by default; general models use 320-820 nm. Override either bound
+400-650 nm by default; individual transsulfuration fits retain 385-650 nm.
+General models use 320-820 nm. Override either bound
 with `--lambda-min`, `--lambda-max` or the interactive dialog.
 
 ## Special mechanisms
@@ -338,8 +339,8 @@ Numerical outputs accompany the figures:
 
 ## Irreversible binding with autocatalytic reduction
 
-Choose **Special mechanisms and studies → Autocatalytic MbFe(III) reduction
-by sulfides with irreversible binding** (currently special option 6).
+Choose **Special mechanisms and studies → MbFe(III)+HS- irreversible binding**
+(special option 3).
 CLI model: `--model mbfe3_sulfide_irreversible_binding_autocatalytic`.
 The reversible binding integrator is reused with `k_off = 0` fixed exactly.
 Only `k_on`, `k_slow` (reduction) and `k_cat` are optimized; spectral reference
@@ -430,3 +431,57 @@ the kinetic profiles. Reversible models with unknown species spectra can admit
 substantially different rate/spectrum combinations with similar residuals.
 Inspect species spectra and local concentration discrepancies; a selected
 solution is not evidence that its individual rates are uniquely identified.
+
+
+### Numeric exports (all kinetic mechanisms)
+
+Final exports contain no text headers; units and species order are recorded
+separately in `*_export_layout.json`. Spectral CSV matrices (`*_experimental.csv`,
+`*_simulated.csv`, `*_residuals_mAU.csv`) have time in row 1, wavelength in column 1,
+and an empty top-left cell. Experimental values include all accepted baseline
+corrections and cuts; simulation uses the identical axes. Residuals are experimental
+minus simulated, in mAU, without clipping. The final panel uses a fixed +/-20 mAU
+color scale and indicates exceedances.
+
+`*_pure_spectra.dat` contains wavelength followed by the species epsilon columns.
+`*_concentrations.dat` has time in row 1 and numeric row identifiers in column 1:
+rows 1..N after the time row hold all model concentrations; rows N+1..2N hold
+sparse spectral projections in the same species order. Empty projection cells
+mean no display point, not zero concentration. `*_spectral_concentrations.dat`
+also provides these sparse points directly (time row then species rows).
+Concentrations are molar. Projections are nonnegative and sum to c0; they use the
+fitted species spectra and are not independent concentration measurements.
+Display points are selected by time targets, never residual quality. No fitted
+observations are removed by this display sampling. Older concentration tables
+with time in column 1 are superseded by this layout.
+
+
+### Special mechanisms menu
+
+1. Thermal analysis of disulfide acid-base speciation
+2. MbFe(III)+HS- postbinding
+3. MbFe(III)+HS- irreversible binding
+4. MbFe(III)+HS- reversible binding
+5. MbFe(III)+HSS- postbinding
+6. MbFe(III)+HSS- reversible binding
+7. Transsulfuration reactions
+
+The transsulfuration submenu contains individual fits with and without
+autocatalysis, followed by the corresponding two global fits (options 1–4).
+Selecting Back returns to the parent menu without requesting an input file.
+
+
+### Unified species-reference dialog
+
+Individual kinetic fits, including the generic A -> B, A -> B -> C and
+A <-> B -> C models, ask **Use a known spectrum for species X?** once per
+species. Options appear on separate lines: `yes` (first/last retained frame,
+endpoints only), `no` (fit freely), an original 1-based index, an inclusive
+range to average, or a reference file. Only a file selection adds an amplitude
+question (fixed multiplier 1 or fitted multiplier 0.7–1.3). Imported spectra
+must contain baseline-corrected epsilon in M^-1 cm^-1 for a 1 cm optical path.
+Headerless numeric reference tables are accepted: wavelength followed by the
+species columns in positional A/B/C order; a single spectrum column can be
+used for any species. Legacy labeled files remain supported. This also allows
+reusing the numeric pure-spectra exports directly. Supplied command-line
+references are reported without asking for the same species again.

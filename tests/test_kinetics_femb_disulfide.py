@@ -47,7 +47,7 @@ class FeMbDisulfideTests(unittest.TestCase):
 
     def test_menu_and_system_defaults_without_additional_questions(self):
         args=build_parser().parse_args(['file.KD'])
-        index=list(SPECIAL_MODEL_LABELS).index(MODEL)+1
+        index=6
         with patch('builtins.input',side_effect=['4',str(index)]),redirect_stdout(io.StringIO()):
             self.assertTrue(kinetics_menu(args))
         self.assertEqual(args.model,MODEL)

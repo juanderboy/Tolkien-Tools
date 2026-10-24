@@ -76,7 +76,7 @@ def print_welcome_banner():
     print("        Statistical analysis of charges and spin populations")
     print("        Time series, KDE modes, histograms, and comparisons")
     print("")
-    print("                 Vibecoded by Tolkien, 2026")
+    print("Personal routines by J. P. Marcolongo, 2025-2026".center(78))
     print("=" * 78)
     print("")
 

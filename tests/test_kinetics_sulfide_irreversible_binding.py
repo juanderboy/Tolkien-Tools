@@ -28,7 +28,7 @@ class IrreversibleBindingTests(unittest.TestCase):
 
     def test_menu_cli_and_endpoints(self):
         args = build_parser().parse_args(['--model', MODEL])
-        with patch('builtins.input', side_effect=['4', '6', 'data.KD']), redirect_stdout(io.StringIO()):
+        with patch('builtins.input', side_effect=['4', '3', 'data.KD']), redirect_stdout(io.StringIO()):
             self.assertTrue(kinetics_menu(args))
         self.assertEqual(args.model, MODEL)
         self.assertEqual(endpoint_spectrum_menu_labels(MODEL, True, None), ('MbFeIII', 'MbFeII'))

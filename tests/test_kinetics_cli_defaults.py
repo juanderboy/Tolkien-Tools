@@ -9,17 +9,17 @@ KINETICS_DIR = Path(__file__).resolve().parents[1] / "TolkienTools" / "kinetics"
 sys.path.insert(0, str(KINETICS_DIR))
 
 from kinet_cli import apply_model_default_wavelength_range, build_parser  # noqa: E402
+from kinet_common import SPECIAL_MODEL_LABELS, HSS_TRANSSULFURATION_MODELS
 
 
 class KineticsCliDefaultTests(unittest.TestCase):
-    def test_special_models_default_to_385_650_nm(self) -> None:
-        args = build_parser().parse_args(
-            ["experiment.dat", "--model", "mbfe3_hss_no_binding"]
-        )
-
-        apply_model_default_wavelength_range(args, args.model)
-
-        self.assertEqual((args.lambda_min, args.lambda_max), (385.0, 650.0))
+    def test_special_models_default_to_400_650_nm(self) -> None:
+        for model in SPECIAL_MODEL_LABELS:
+            with self.subTest(model=model):
+                args = build_parser().parse_args(["experiment.dat", "--model", model])
+                apply_model_default_wavelength_range(args, args.model)
+                expected_min = 385.0 if model in HSS_TRANSSULFURATION_MODELS else 400.0
+                self.assertEqual((args.lambda_min, args.lambda_max), (expected_min, 650.0))
 
     def test_explicit_special_model_range_is_preserved(self) -> None:
         args = build_parser().parse_args(

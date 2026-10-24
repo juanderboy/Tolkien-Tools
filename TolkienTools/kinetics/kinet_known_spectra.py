@@ -63,13 +63,19 @@ def _read_header_labels(path: Path) -> tuple[str, ...]:
 
 def read_known_spectrum_file(path: Path) -> tuple[np.ndarray, dict[str, np.ndarray]]:
     """Read a pure-spectra table and return wavelength plus spectra by label."""
+    delimiter = None
+    with path.open(encoding="utf-8-sig") as stream:
+        for line in stream:
+            if line.strip() and not line.lstrip().startswith("#"):
+                delimiter = "," if "," in line else ";" if ";" in line else None
+                break
+    data = np.loadtxt(path, comments="#", encoding="utf-8-sig", delimiter=delimiter, ndmin=2)
     try:
         labels = _read_header_labels(path)
-        data = np.loadtxt(path, comments="#", encoding="utf-8-sig")
-    except ValueError as exc:
-        raise ValueError(
-            f"{path}: unrecognized file format; check the input file"
-        ) from exc
+    except ValueError:
+        if not 2 <= data.shape[1] <= 4:
+            raise ValueError(f"{path}: use wavelength followed by one to three spectra")
+        labels = tuple("ABC"[:data.shape[1] - 1])
     if data.ndim == 1:
         data = data[None, :]
     if data.shape[1] != len(labels) + 1:
@@ -79,8 +85,12 @@ def read_known_spectrum_file(path: Path) -> tuple[np.ndarray, dict[str, np.ndarr
     wavelength = data[:, 0]
     if wavelength.size < 2:
         raise ValueError(f"{path}: at least two wavelength points are required")
+    if not np.isfinite(data).all():
+        raise ValueError(f"{path}: all spectrum values must be finite")
     order = np.argsort(wavelength)
     wavelength = wavelength[order]
+    if np.any(np.diff(wavelength) <= 0):
+        raise ValueError(f"{path}: wavelengths must be unique")
     spectra = {
         label: data[order, column + 1]
         for column, label in enumerate(labels)

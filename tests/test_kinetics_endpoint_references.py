@@ -31,6 +31,45 @@ class EndpointReferenceTests(unittest.TestCase):
                                          preferred_baseline_region=(750.,850.))
         return args,result
 
+    def test_every_active_model_uses_the_same_per_species_reference_dialog(self):
+        import tempfile
+        from kinet_common import MODEL_SPECIES, HSS_TRANSSULFURATION_MODELS
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/'reference.dat'
+            path.write_text('400 10 20 30\n500 12 24 36\n')
+            for model, labels in MODEL_SPECIES.items():
+                if model in HSS_TRANSSULFURATION_MODELS:
+                    continue
+                for selection in ('no', '2', '2-3', str(path)):
+                    with self.subTest(model=model, selection=selection):
+                        args=build_parser().parse_args(['--model',model])
+                        args.lambda_min,args.lambda_max=400.,500.
+                        replies=['','20','40']
+                        for label in labels:
+                            replies.append(selection)
+                            if selection==str(path):
+                                replies.append('no')
+                        replies += ['750-850','400-500','2','yes']
+                        with patch('builtins.input',side_effect=replies) as prompts, \
+                             patch('kinet_plotting.plot_preprocessed_experiment_preview'), \
+                             redirect_stdout(io.StringIO()):
+                            preprocess_experiment(args,self.raw,
+                                initial_spectrum_label=labels[0],final_spectrum_label=labels[-1],
+                                species_labels=labels,preferred_baseline_region=(750.,850.))
+                        questions=[call.args[0] for call in prompts.call_args_list]
+                        self.assertEqual(sum('Known spectrum for species' in q for q in questions),len(labels))
+                        self.assertEqual(len(args.fixed_reference_files),len(labels) if selection==str(path) else 0)
+
+    def test_reference_question_is_explicit_and_options_are_separate_lines(self):
+        output=io.StringIO()
+        with patch('builtins.input',return_value='no'),redirect_stdout(output):
+            ask_endpoint_reference('B','intermediate',0,6,[])
+        text=output.getvalue()
+        self.assertIn('Use a known spectrum for species B?',text)
+        for option in ('no', 'N', 'N-M', 'file.dat'):
+            self.assertIn('\n  '+option,text)
+        self.assertIn('no automatic',text)
+
     def test_original_indices_and_inclusive_ranges_validate(self):
         self.assertEqual(parse_endpoint_reference('23-25',30,[]),(22,23,24))
         self.assertEqual(parse_endpoint_reference('23',30,[]),(22,))
@@ -90,6 +129,7 @@ class EndpointReferenceTests(unittest.TestCase):
         from kinet_export import write_fit_summary_dat
         args,result=self.preprocess('1-2','5-6')
         fit=SimpleNamespace(method='nnls',error=0.,spectra=np.ones((2,2)),
+            residuals=np.zeros_like(self.raw.absorbance),
             fixed_initial_spectrum=False,fixed_final_spectrum=False,
             known_species=(),known_spectrum_scales={},params={'k':.01},
             species_labels=('A','B'),singular_values=np.array([1.,.5]))
@@ -205,7 +245,7 @@ class EndpointReferenceTests(unittest.TestCase):
             self.assertTrue(np.isnan(kwargs['known_spectra'][:,1]).all())
             self.assertIn(path,export.call_args.kwargs['protected_input_paths'])
             texts=[call.args[0] for call in prompts.call_args_list]
-            self.assertEqual(sum('Fixed spectrum for' in text for text in texts),3)
+            self.assertEqual(sum('Known spectrum for species' in text for text in texts),3)
             self.assertFalse(any('Do you have known spectra' in text for text in texts))
 
     def test_epsilon_file_amplitude_choice_is_independent_per_species(self):

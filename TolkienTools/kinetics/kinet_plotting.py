@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 
 from kinet_common import Experiment, FitResult, PARAMETER_LABELS
-from kinet_linalg import factor_analysis
+from kinet_linalg import factor_analysis, projected_concentrations, concentration_point_indices
 
 
 def time_gradient_colors(n: int) -> np.ndarray:
@@ -820,39 +820,57 @@ def plot_result(
     ax_pure.legend()
 
     ax_conc = axes["concentrations"]
+    estimates = projected_concentrations(experiment, result)
+    point_ids = concentration_point_indices(experiment.t)
     for i, label in enumerate(result.species_labels):
         line,=ax_conc.plot(experiment.t, result.c[i, :], label=label)
-        if result.estimated_concentrations is not None:
-            ax_conc.scatter(experiment.t,result.estimated_concentrations[i],s=9,
-                            color=line.get_color(),alpha=.55)
+        ax_conc.scatter(experiment.t[point_ids], estimates[i, point_ids], s=16,
+                        color=line.get_color(), edgecolors="white", linewidths=.3,
+                        zorder=3)
     ax_conc.set_xlabel("Time")
     ax_conc.set_ylabel("Concentration (M)")
     ax_conc.set_title("Concentration profiles")
     ax_conc.legend()
 
     ax_residuals = axes["residuals"]
-    residual_colors = time_gradient_colors(experiment.t.size)
-    for j, color in enumerate(residual_colors):
-        ax_residuals.plot(
-            experiment.wavelength,
-            result.residuals[:, j],
-            color=color,
-            marker="o",
-            linestyle="none",
-            markersize=1.8,
-            markeredgewidth=0.0,
-            alpha=0.75,
-        )
-    ax_residuals.set_xlabel("Wavelength")
-    ax_residuals.set_ylabel("Residual absorbance")
-    ax_residuals.set_title("Residuals")
-    add_matrix_hover_labels(
-        ax_residuals,
-        x=experiment.wavelength,
-        y_matrix=result.residuals,
-        times=experiment.t,
-        value_label="residual",
+    from matplotlib.colors import LinearSegmentedColormap
+
+    residual_mau = 1000.0 * result.residuals
+    limit = 20.0
+    cmap = LinearSegmentedColormap.from_list(
+        "residual_blue_orange",
+        ["#315F7B", "#9DBFD0", "#F9F9F6", "#E0B89B", "#985B40"],
     )
+
+    def cell_edges(values):
+        values = np.asarray(values)
+        if values.size == 1:
+            return np.array([values[0] - 0.5, values[0] + 0.5])
+        return np.r_[values[0] - (values[1] - values[0]) / 2,
+                     (values[:-1] + values[1:]) / 2,
+                     values[-1] + (values[-1] - values[-2]) / 2]
+
+    heatmap = ax_residuals.pcolormesh(
+        cell_edges(experiment.wavelength), cell_edges(experiment.t),
+        residual_mau.T, cmap=cmap, vmin=-limit, vmax=limit,
+        shading="flat", rasterized=True,
+    )
+    below = bool(np.any(residual_mau < -limit))
+    above = bool(np.any(residual_mau > limit))
+    extend = "both" if below and above else "min" if below else "max" if above else "neither"
+    fig.colorbar(heatmap, ax=ax_residuals, label="Residual (mAU)",
+                 ticks=[-20, -10, 0, 10, 20], extend=extend)
+    ax_residuals.set_xlabel("Wavelength (nm)")
+    ax_residuals.set_ylabel("Time")
+    ax_residuals.set_title("Residuals: experimental - calculated")
+
+    def residual_coordinate(x, y):
+        i = int(np.argmin(np.abs(experiment.wavelength - x)))
+        j = int(np.argmin(np.abs(experiment.t - y)))
+        return (f"wavelength={experiment.wavelength[i]:g} nm, "
+                f"time={experiment.t[j]:g}, residual={residual_mau[i, j]:.4g} mAU")
+
+    ax_residuals.format_coord = residual_coordinate
 
     ax_singular = axes["singular"]
     component_indices = np.arange(1, result.singular_values.size + 1)

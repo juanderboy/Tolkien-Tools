@@ -115,7 +115,7 @@ def print_banner() -> None:
     lines = [
         "Tolkien Tools",
         "Computational chemistry and spectroscopy utilities",
-        "vibecoded by Tolkien, 2026",
+        "Personal routines by J. P. Marcolongo, 2025-2026",
     ]
 
     print()

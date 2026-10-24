@@ -101,7 +101,7 @@ def print_startup_banner() -> None:
         "TOLKinetics",
         "Multiwavelength kinetic analysis",
         "Factor analysis and global fitting of spectral time series",
-        "vibecoded by Tolkien, 2026",
+        "Personal routines by J. P. Marcolongo, 2025-2026",
     ]
 
     print()
@@ -142,22 +142,8 @@ def ask_model_choice(default_model: str) -> str:
     if index <= len(general_keys):
         return general_keys[index - 1]
 
-    special_keys = list(SPECIAL_MODEL_LABELS)
-    print()
-    print("Special mechanisms:")
-    for i, key in enumerate(special_keys, start=1):
-        marker = "default" if key == default_model else ""
-        suffix = f" [{marker}]" if marker else ""
-        print(f"  {i}. {SPECIAL_MODEL_LABELS[key]}{suffix}")
-    special_choice = input("Choose a special mechanism (Enter = first): ").strip()
-    if not special_choice:
-        return special_keys[0]
-    special_choice_index = int(special_choice)
-    if special_choice_index < 1 or special_choice_index > len(special_keys):
-        raise ValueError(
-            f"Special model choice must be between 1 and {len(special_keys)}"
-        )
-    return special_keys[special_choice_index - 1]
+    selected = special_study_choice(spectra_only=True)
+    return default_model if selected is None else selected[1]
 
 
 
@@ -185,10 +171,10 @@ def apply_model_default_wavelength_range(
     model: str,
 ) -> None:
     """Use the Soret/visible window by default for special mechanisms."""
-    if model == "femb_disulfide_reversible":
-        default_min, default_max = 400.0, 650.0
-    elif model in SPECIAL_MODEL_LABELS:
+    if model in HSS_TRANSSULFURATION_MODELS:
         default_min, default_max = 385.0, 650.0
+    elif model in SPECIAL_MODEL_LABELS:
+        default_min, default_max = 400.0, 650.0
     else:
         default_min, default_max = 320.0, 820.0
     if args.lambda_min is None:
@@ -510,8 +496,8 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=None,
         help=(
-            "Lower fit wavelength. Defaults to 385 nm for special mechanisms "
-            "and 320 nm for general models."
+            "Lower fit wavelength. Defaults to 400 nm for special mechanisms "
+            "(385 nm for individual transsulfuration fits) and 320 nm for general models."
         ),
     )
     parser.add_argument(
@@ -711,30 +697,61 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 
-def special_study_choice() -> tuple[str, str | None] | None:
-    """Select a specific mechanism or study without requesting data."""
-    models = list(SPECIAL_MODEL_LABELS)
-    thermal_index = len(models) + 1
-    global_models = list(HSS_TRANSSULFURATION_MODELS)
+def transsulfuration_choice(include_global: bool = True) -> tuple[str, str] | None:
+    """Group single-experiment and global transsulfuration analyses."""
+    entries = [("spectra", model) for model in HSS_TRANSSULFURATION_MODELS]
+    if include_global:
+        entries += [("global", model) for model in HSS_TRANSSULFURATION_MODELS]
+    while True:
+        print("\nTranssulfuration reactions")
+        for index, (kind, model) in enumerate(entries, 1):
+            prefix = "Global fit: " if kind == "global" else ""
+            print(f"  {index}. {prefix}{SPECIAL_MODEL_LABELS[model]}")
+        print("  0. Back")
+        choice = input("Choose a transsulfuration analysis: ").strip().lower()
+        if choice in {"0", "q", "quit", "exit", "back", "salir"}:
+            return None
+        if choice.isdigit() and 1 <= int(choice) <= len(entries):
+            return entries[int(choice) - 1]
+        print("Choose one of the listed options.")
+
+
+SPECIAL_SPECTRAL_MODELS = (
+    "mbfe3_sulfide_autocatalytic",
+    "mbfe3_sulfide_irreversible_binding_autocatalytic",
+    "mbfe3_sulfide_binding_autocatalytic",
+    "mbfe3_hss_no_binding",
+    "femb_disulfide_reversible",
+)
+
+
+def special_study_choice(spectra_only: bool = False) -> tuple[str, str | None] | None:
+    """Choose a study or mechanism, grouping transsulfuration analyses."""
+    entries = [] if spectra_only else [("activation", None)]
+    entries += [("spectra", model) for model in SPECIAL_SPECTRAL_MODELS]
+    entries += [("transsulfuration", None)]
     while True:
         print("\nSpecial mechanisms and studies")
-        for index, model in enumerate(models, 1):
-            print(f"  {index}. {SPECIAL_MODEL_LABELS[model]}")
-        print(f"  {thermal_index}. Thermal analysis of disulfide acid-base speciation")
-        for index, model in enumerate(global_models, thermal_index + 1):
-            print(f"  {index}. Global fit: {SPECIAL_MODEL_LABELS[model]}")
+        for index, (kind, model) in enumerate(entries, 1):
+            if kind == "activation":
+                label = "Thermal analysis of disulfide acid-base speciation"
+            elif kind == "transsulfuration":
+                label = "Transsulfuration reactions"
+            else:
+                label = SPECIAL_MODEL_LABELS[model]
+            print(f"  {index}. {label}")
         print("  0. Back")
         choice = input("Choose a mechanism or study: ").strip().lower()
         if choice in {"0", "q", "quit", "exit", "back", "salir"}:
             return None
-        if choice.isdigit():
-            index = int(choice)
-            if 1 <= index <= len(models):
-                return "spectra", models[index-1]
-            if index == thermal_index:
-                return "activation", None
-            if thermal_index < index <= thermal_index + len(global_models):
-                return "global", global_models[index-thermal_index-1]
+        if choice.isdigit() and 1 <= int(choice) <= len(entries):
+            kind, model = entries[int(choice) - 1]
+            if kind == "transsulfuration":
+                selected = transsulfuration_choice(include_global=not spectra_only)
+                if selected is None:
+                    continue
+                return selected
+            return kind, model
         print("Choose one of the listed options.")
 
 

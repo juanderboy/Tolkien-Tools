@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import uuid
 from pathlib import Path
@@ -19,6 +20,7 @@ from kinet_common import (
 )
 from kinet_fitting import is_near_bound
 from kinet_plotting import plot_result
+from kinet_linalg import projected_concentrations, concentration_point_indices
 
 
 def can_write_output_directory(path: Path) -> bool:
@@ -106,6 +108,11 @@ def write_fit_summary_dat(
         f"time_min\t{experiment.t[0]:.10g}",
         f"time_max\t{experiment.t[-1]:.10g}",
         f"fit_error\t{result.error:.10g}",
+        f"residual_RMSE_mAU\t{1000 * np.sqrt(np.mean(result.residuals**2)):.10g}",
+        "residual_definition\texperimental - calculated",
+        "residual_color_limit_mAU\t20",
+        f"residual_max_abs_mAU\t{1000 * np.max(np.abs(result.residuals)):.10g}",
+        f"residual_saturated_fraction\t{np.mean(np.abs(result.residuals) > 0.020):.10g}",
         f"minimum_recovered_spectrum_value\t{result.spectra.min():.10g}",
         f"k_search_min\t{k_min:.10g}",
         f"k_search_max\t{k_max:.10g}",
@@ -209,25 +216,72 @@ def export_final_fit_outputs(
             f"writing recovered spectra to {spectra_path} instead."
         )
 
-    concentration_table = np.column_stack((experiment.t, result.c.T))
-    concentration_header = "\t".join(("time", *result.species_labels))
-    np.savetxt(
-        concentration_path,
-        concentration_table,
-        delimiter="\t",
-        header=concentration_header,
-        comments="# ",
-    )
+    def numeric_path(suffix):
+        candidate = prefix.with_name(f"{prefix.name}_{suffix}")
+        while candidate.resolve() in protected_resolved:
+            candidate = candidate.with_name(f"{candidate.stem}_fit{candidate.suffix}")
+        return ensure_writable_output_path(candidate)
 
-    spectra_table = np.column_stack((experiment.wavelength, result.spectra))
-    spectra_header = "\t".join(("wavelength", *result.species_labels))
-    np.savetxt(
-        spectra_path,
-        spectra_table,
-        delimiter="\t",
-        header=spectra_header,
-        comments="# ",
-    )
+    def write_numeric(path, table):
+        with path.open("w", newline="", encoding="utf-8") as stream:
+            writer = csv.writer(stream, delimiter="\t" if path.suffix == ".dat" else ",")
+            for row in table:
+                writer.writerow(["" if np.isnan(value) else format(value, ".12g")
+                                 for value in row])
+
+    def spectral_matrix(values):
+        table = np.empty((experiment.wavelength.size + 1, experiment.t.size + 1))
+        table[0, 0] = np.nan
+        table[0, 1:] = experiment.t
+        table[1:, 0] = experiment.wavelength
+        table[1:, 1:] = values
+        return table
+
+    experiment_path = numeric_path("experimental.csv")
+    simulated_path = numeric_path("simulated.csv")
+    residual_path = numeric_path("residuals_mAU.csv")
+    write_numeric(experiment_path, spectral_matrix(experiment.absorbance))
+    write_numeric(simulated_path, spectral_matrix(result.absorbance_calc))
+    write_numeric(residual_path, spectral_matrix(1000. * result.residuals))
+    write_numeric(spectra_path, np.column_stack((experiment.wavelength, result.spectra)))
+
+    estimates = projected_concentrations(experiment, result, c0)
+    point_ids = concentration_point_indices(experiment.t)
+    count = len(result.species_labels)
+    concentration_table = np.full((1 + 2 * count, experiment.t.size + 1), np.nan)
+    concentration_table[0, 1:] = experiment.t
+    concentration_table[1:, 0] = np.arange(1, 2 * count + 1)
+    concentration_table[1:count + 1, 1:] = result.c
+    concentration_table[count + 1:, point_ids + 1] = estimates[:, point_ids]
+    write_numeric(concentration_path, concentration_table)
+    estimate_path = numeric_path("spectral_concentrations.dat")
+    estimate_table = np.vstack((experiment.t[point_ids], estimates[:, point_ids]))
+    write_numeric(estimate_path, estimate_table)
+
+    layout_path = numeric_path("export_layout.json")
+    layout_path.write_text(json.dumps({
+        "species_order": list(result.species_labels),
+        "spectral_matrices": {
+            "files": [experiment_path.name, simulated_path.name, residual_path.name],
+            "first_row": "time, same units and origin as the fitted experiment",
+            "first_column": "wavelength (nm)", "top_left": "empty",
+            "absorbance_units": "AU", "residual_units": "mAU",
+            "residual_definition": "experimental - simulated",
+        },
+        "pure_spectra": {"file": spectra_path.name,
+            "first_column": "wavelength (nm)",
+            "remaining_columns": list(result.species_labels), "units": "M^-1 cm^-1"},
+        "concentrations": {"file": concentration_path.name,
+            "first_row": "time", "first_column": "numeric row identifier",
+            "model_row_ids": list(range(1, count + 1)),
+            "projected_row_ids": list(range(count + 1, 2 * count + 1)),
+            "species_order_within_each_block": list(result.species_labels),
+            "units": "M", "empty_cells": "projected point not selected for display",
+            "projection": "nonnegative, sum constrained to c0; diagnostic using fitted spectra",
+            "point_selection": "nearest measured times to 0/5/15/30 and ten equally spaced targets"},
+        "projected_points": {"file": estimate_path.name, "first_row": "time",
+            "remaining_rows": list(result.species_labels), "units": "M"},
+    }, indent=2) + "\n", encoding="utf-8")
 
     write_fit_summary_dat(
         summary_path,
@@ -245,13 +299,7 @@ def export_final_fit_outputs(
     if result.selection_diagnostics is not None:
         selection_path=ensure_writable_output_path(prefix.with_name(f"{prefix.name}_selection.json"))
         selection_path.write_text(json.dumps(result.selection_diagnostics,indent=2)+"\n")
-        estimate_path=ensure_writable_output_path(prefix.with_name(f"{prefix.name}_spectral_concentrations.dat"))
-        if estimate_path.resolve() in protected_resolved:
-            estimate_path=ensure_writable_output_path(prefix.with_name(f"{prefix.name}_fit_spectral_concentrations.dat"))
-        np.savetxt(estimate_path,np.column_stack((experiment.t,result.estimated_concentrations.T)),
-                   delimiter="\t",header=concentration_header)
         print(f"  Selection diagnostics: {selection_path}")
-        print(f"  Spectral concentration estimates: {estimate_path}")
     plot_result(
         experiment,
         result,
@@ -264,4 +312,9 @@ def export_final_fit_outputs(
     print(f"  {concentration_path}")
     print(f"  {spectra_path}")
     print(f"  {summary_path}")
+    print(f"  {experiment_path}")
+    print(f"  {simulated_path}")
+    print(f"  {residual_path}")
+    print(f"  {estimate_path}")
+    print(f"  {layout_path}")
     print(f"  {panel_path}")

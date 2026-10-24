@@ -443,11 +443,22 @@ def ask_endpoint_reference(label, endpoint, original_time, n_spectra, dropped_in
         default = str(first) if first == last else f"{first}-{last}"
     else:
         default = 'yes' if default_fixed else 'no'
-    endpoint_help = (f"yes = {endpoint} retained spectrum (original t = {original_time:g}); "
-                     if endpoint in {"first", "last"} else "")
-    print(f"{label}: {endpoint_help}no = fit freely; index/range = original "
-          "spectrum/mean; file.dat = molar spectrum (amplitude choice follows).")
-    text = input(f"Fixed spectrum for {label}? Enter = {default}: ").strip() or default
+    print()
+    print(f"Use a known spectrum for species {label}?")
+    if endpoint in {"first", "last"}:
+        print(f"  yes       Use the {endpoint} retained experimental spectrum "
+              f"(original time = {original_time:g}).")
+    else:
+        print("  For an intermediate, choose an index, range or file; "
+              "there is no automatic 'yes' reference.")
+    print("  no        Fit this species spectrum freely.")
+    print("  N         Use original spectrum N, e.g. 23.")
+    print("  N-M       Average original spectra N through M, inclusive, e.g. 23-25.")
+    print("  file.dat  Read a known molar spectrum from a file (path accepted).")
+    print("Indices refer to the original input, starting at 1, before time trimming.")
+    print("Experimental references use the chosen baseline correction and stay fixed.")
+    print(f"Press Enter to keep: {default}")
+    text = input(f"Known spectrum for species {label}: ").strip() or default
     choice = text.lower()
     if choice in {"s", "si", "sí", "y", "yes"}:
         if endpoint not in {"first", "last"}:
@@ -462,8 +473,6 @@ def ask_endpoint_reference(label, endpoint, original_time, n_spectra, dropped_in
         raise ValueError(f"Reference file not found: {path}")
     reference = FixedSpectrumFile(path.resolve(), alias)
     read_fixed_spectrum_file(reference)
-    previous = (default_indices if isinstance(default_indices, FixedSpectrumFile)
-                and default_indices.path.resolve() == reference.path else None)
     print(f"Reference file: {reference.path}")
     print("Expected values: molar absorptivity epsilon, in M^-1 cm^-1, "
           "already baseline-corrected (1 cm optical path).")
@@ -471,11 +480,11 @@ def ask_endpoint_reference(label, endpoint, original_time, n_spectra, dropped_in
                       and default_indices.path.resolve() == reference.path
                       and default_indices.fit_amplitude)
     default_text = "yes" if default_adjust else "no"
+    print(f"Adjust the amplitude of the known spectrum for species {label}?")
+    print("  yes  Fit a multiplier between 0.7 and 1.3.")
+    print("  no   Keep the supplied molar absorptivity unchanged (multiplier 1).")
     while True:
-        amplitude = input(
-            f"Adjust the amplitude of {label} during fitting? "
-            f"yes = fit a multiplier from 0.7 to 1.3; no = keep multiplier 1. "
-            f"Enter = {default_text}: ").strip().lower() or default_text
+        amplitude = input(f"Amplitude adjustment (Enter = {default_text}): ").strip().lower() or default_text
         if amplitude in {"s", "si", "sí", "y", "yes", "n", "no"}:
             break
         print("Amplitude choice must be yes or no.")

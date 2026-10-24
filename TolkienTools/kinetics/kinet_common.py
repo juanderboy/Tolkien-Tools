@@ -15,25 +15,19 @@ GENERAL_MODEL_LABELS = {
 }
 
 SPECIAL_MODEL_LABELS = {
-    "mbfe3_hss_no_binding": (
-        "MbFe(III) reduction by HSS- without binding in the fitted window"
-    ),
-    "mbfe3_sulfide_autocatalytic": "Autocatalytic MbFe(III) reduction by sulfides",
-    "mbfe3_sulfide_binding_autocatalytic": (
-        "Autocatalytic MbFe(III) reduction by sulfides with reversible binding"
-    ),
+    "mbfe3_hss_no_binding": "MbFe(III)+HSS- postbinding",
+    "mbfe3_sulfide_autocatalytic": "MbFe(III)+HS- postbinding",
+    "mbfe3_sulfide_binding_autocatalytic": "MbFe(III)+HS- reversible binding",
     "mbfe3_sulfide_hss_transsulfuration": (
-        "MbFe(III)-HS reduction by added HSS- with transsulfuration"
+        "MbFe(III)-HS + HSS- transsulfuration with autocatalysis"
     ),
     "mbfe3_sulfide_hss_transsulfuration_no_auto": (
-        "MbFe(III)-HS reduction by added HSS- with transsulfuration "
-        "without autocatalysis"
+        "MbFe(III)-HS + HSS- transsulfuration without autocatalysis"
     ),
-    "mbfe3_sulfide_irreversible_binding_autocatalytic": (
-        "Autocatalytic MbFe(III) reduction by sulfides with irreversible binding"
-    ),
-    "femb_disulfide_reversible": "FeMb + disulfides with reversible binding",
+    "mbfe3_sulfide_irreversible_binding_autocatalytic": "MbFe(III)+HS- irreversible binding",
+    "femb_disulfide_reversible": "MbFe(III)+HSS- reversible binding",
 }
+
 
 MODEL_LABELS = {
     **GENERAL_MODEL_LABELS,
