@@ -75,6 +75,30 @@ class TransitionTests(unittest.TestCase):
         self.assertIn('info script', script)
         self.assertIn('orbital_116_a.cube', script)
 
+    def test_relative_colors_and_boundaries(self):
+        states = [td.Transition(i + 1, 1, 3., fosc=f) for i, f in enumerate([1., .5, .499, .1, .099, 0., None])]
+        log = io.StringIO()
+        with contextlib.redirect_stdout(log), patch.object(log, 'isatty', return_value=True), patch.dict(td.os.environ, {}, clear=True):
+            td.show_states(states)
+        rows = [line for line in log.getvalue().splitlines() if 'unmatched' in line]
+        self.assertTrue(rows[0].startswith('\033[32m'))
+        self.assertTrue(rows[1].startswith('\033[32m'))
+        self.assertTrue(rows[2].startswith('\033[33m'))
+        self.assertTrue(rows[3].startswith('\033[33m'))
+        self.assertTrue(all('\033[' not in row for row in rows[4:]))
+        self.assertTrue(all(row.endswith('\033[0m') for row in rows[:4]))
+
+    def test_no_colors_for_zero_strengths_or_redirected_output(self):
+        for values in [[0., 0.], [1., .1]]:
+            log = io.StringIO()
+            with contextlib.redirect_stdout(log):
+                td.show_states([td.Transition(i, 1, 3., fosc=f) for i, f in enumerate(values)])
+            self.assertNotIn('\033[', log.getvalue())
+        log = io.StringIO()
+        with contextlib.redirect_stdout(log), patch.object(log, 'isatty', return_value=True):
+            td.show_states([td.Transition(1, 1, 3., fosc=0.)])
+        self.assertNotIn('\033[', log.getvalue())
+
     def test_pair_selection(self):
         states, _ = parse()
         pairs = states[1].contributions

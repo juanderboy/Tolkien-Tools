@@ -95,3 +95,14 @@ For UHF/UKS references, the explorer preserves alpha/beta channels and warns
 that ORCA multiplicities are estimates based on the printed `<S**2>`. They
 should not be interpreted as pure-spin assignments. Printed `<S**2>` is also
 recorded in the transition metadata.
+
+In a terminal, transition rows are green for `f >= 0.5 * f_max` and yellow for
+`0.1 * f_max <= f < 0.5 * f_max`; lower/unknown strengths remain uncolored.
+`f_max` is taken from the full calculation, before `--min-fosc` filtering.
+The table prints a legend and numeric cutoffs. These are relative strengths;
+a green row need not have a large absolute oscillator strength. All-zero
+calculations remain uncolored. Redirected output and `NO_COLOR` disable ANSI
+colors.
+
+VMD orbital surfaces use the custom `TolkienOrbital` material with opacity
+0.85 (15% transparency); the molecular framework uses opaque material.

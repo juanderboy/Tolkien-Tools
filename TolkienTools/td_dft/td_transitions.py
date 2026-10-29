@@ -4,10 +4,12 @@ import argparse
 from dataclasses import asdict, dataclass, field
 import json
 import math
+import os
 from pathlib import Path
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 
 
@@ -141,13 +143,30 @@ def select_pairs(spec, contributions):
 
 
 def show_states(states, min_fosc=0.0):
+    maximum = max((s.fosc for s in states if s.fosc is not None and math.isfinite(s.fosc)), default=0.0)
+    use_color = sys.stdout.isatty() and "NO_COLOR" not in os.environ
+    green, yellow, reset = ("\033[32m", "\033[33m", "\033[0m") if use_color else ("", "", "")
+    if maximum > 0:
+        print(f"Relative to this calculation's maximum f = {maximum:.9g}:")
+        print(f"{green}Green: high (f >= {0.5 * maximum:.9g}, 50% of max){reset}; "
+              f"{yellow}yellow: intermediate (f >= {0.1 * maximum:.9g}, 10% of max){reset}; "
+              "uncolored: low or unavailable. Relative strength does not imply strong absolute absorption.")
+    else:
+        print("No positive oscillator strengths: rows remain uncolored.")
     print("\nSTATE  Label       lambda/nm    E/eV        fosc      printed pairs")
     for state in states:
         if state.fosc is not None and state.fosc < min_fosc:
             continue
         wave = f"{state.wavelength_nm:.1f}" if state.wavelength_nm is not None else "N/A"
         fosc = f"{state.fosc:.9f}" if state.fosc is not None else "N/A"
-        print(f"{state.state:5d}  {state.label or 'unmatched':10s} {wave:>9s} {state.energy_ev:8.4f} {fosc:>12s} {len(state.contributions):6d}")
+        color = ""
+        if maximum > 0 and state.fosc is not None:
+            if state.fosc >= 0.5 * maximum:
+                color = green
+            elif state.fosc >= 0.1 * maximum:
+                color = yellow
+        row = f"{state.state:5d}  {state.label or 'unmatched':10s} {wave:>9s} {state.energy_ev:8.4f} {fosc:>12s} {len(state.contributions):6d}"
+        print(f"{color}{row}{reset if color else ''}")
 
 
 def show_composition(state):
@@ -209,13 +228,17 @@ def write_vmd(directory, cubes):
         escaped = escaped.replace(old, new)
     lines = ['# Open with: vmd -e view.vmd', f'set here "{escaped}"',
              'if {[info script] ne ""} {set here [file dirname [file normalize [info script]]]}']
+    lines += [
+        'if {[lsearch -exact [material list] TolkienOrbital] < 0} {material add TolkienOrbital copy Opaque}',
+        'material change opacity TolkienOrbital 0.85',
+    ]
     for cube in cubes:
         # Generated names only; no source paths are interpolated into Tcl.
         lines += [f'mol new [file join $here {cube.name}] type cube waitfor all',
                   'mol delrep 0 top', 'mol representation Licorice 0.15 12 12',
-                  'mol color Element', 'mol addrep top']
+                  'mol color Element', 'mol material Opaque', 'mol addrep top']
         for level, color in [('0.03', 0), ('-0.03', 1)]:
-            lines += [f'mol representation Isosurface {level} 0 0 0 1 1', f'mol color ColorID {color}', 'mol material Transparent', 'mol addrep top']
+            lines += [f'mol representation Isosurface {level} 0 0 0 1 1', f'mol color ColorID {color}', 'mol material TolkienOrbital', 'mol addrep top']
         lines += ['mol off top']
     lines += ['# Orbitals are separate molecules. Toggle them in the VMD molecule list.', 'mol on top', 'display resetview']
     (directory / 'view.vmd').write_text('\n'.join(lines) + '\n')
