@@ -7,6 +7,7 @@ or folder workflow.
 """
 
 import argparse
+import math
 import os
 import sys
 
@@ -14,18 +15,86 @@ from td_batch import process_folder
 from td_single import process_single_file
 
 
+def prompt_positive_number(label, default):
+    while True:
+        value = input(f"{label} [{default}]: ").strip()
+        try:
+            number = float(value) if value else default
+            if math.isfinite(number) and number > 0:
+                return number
+        except ValueError:
+            pass
+        print("Enter a finite number greater than zero.")
+
+
+def prompt_spectrum_options(args):
+    print("\nTD-DFT spectra\n  1. Single calculation\n  2. Nuclear ensemble (folder)\n  3. Explore DFT orbital transitions")
+    while True:
+        choice = input("Choose mode [1]: ").strip() or "1"
+        if choice in {"1", "2", "3"}:
+            break
+        print("Choose 1, 2 or 3.")
+    if choice == "3":
+        from td_transitions import main as transitions_main
+        while True:
+            target = os.path.expanduser(input("ORCA output file: ").strip())
+            if os.path.isfile(target):
+                raise SystemExit(transitions_main([target]))
+            print("Enter an existing output file.")
+    if choice == "1":
+        while True:
+            target = os.path.expanduser(input("ORCA output file: ").strip())
+            if os.path.isfile(target):
+                args.single_file = target
+                break
+            print("Enter an existing output file.")
+    else:
+        while True:
+            target = os.path.expanduser(input("Ensemble directory [.]: ").strip() or ".")
+            if os.path.isdir(target):
+                args.filename = target
+                break
+            print("Enter an existing directory.")
+    args.startx = prompt_positive_number("x0: wavelength lower bound (nm)", 200.0)
+    while True:
+        args.endx = prompt_positive_number("x1: wavelength upper bound (nm)", 1000.0)
+        if args.endx > args.startx:
+            break
+        print("x1 must be greater than x0.")
+    while True:
+        mode = input("Plot axis: lambda / energy [lambda]: ").strip().lower() or "lambda"
+        if mode in {"lambda", "energy"}:
+            args.mode = mode
+            break
+        print("Choose lambda or energy.")
+    args.linewidth_ev = prompt_positive_number("Gaussian FWHM (eV)", 0.1)
+    args.nref = prompt_positive_number("Refractive index", 1.33)
+    while True:
+        show = input("Show Matplotlib window? [Y/n]: ").strip().lower()
+        if show in {"", "y", "yes", "s", "si", "n", "no"}:
+            args.show = show not in {"n", "no"}
+            break
+        print("Choose yes or no.")
+    if choice == "1":
+        print("Outputs: electronic_spectrum/spectrum.png and spectrum.dat (wavelength, epsilon).")
+        print("Existing outputs with these names will be replaced.")
+
+
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] == "transitions":
+        from td_transitions import main as transitions_main
+        raise SystemExit(transitions_main(sys.argv[2:]))
     parser = argparse.ArgumentParser(
         prog="tolkien-tools td",
         description=(
             "Generate molar absorptivity spectra from ORCA TD-DFT outputs.\n"
-            "Single file: tolkien-tools td TD_10.out [options]\n"
+            "Single file: tolkien-tools td --file calculation.out [options]\n"
             "Folder: tolkien-tools td [directory] [options]\n"
             "The current directory is used when no target is given."
         ),
         epilog=(
             "Examples:\n"
-            "  tolkien-tools td TD_10.out --export\n"
+            "  tolkien-tools td --file calculation.out --export\n"
             "  tolkien-tools td . --exclude 10,12,15 --maxlist\n"
             "  tolkien-tools td . --mode energy --no-html\n"
             "Default wavelength range: 200-1000 nm. Matplotlib display is enabled."
@@ -37,9 +106,18 @@ def main():
     parser.add_argument(
         "filename",
         nargs="?",
-        default=".",
-        help="ORCA output (TD_*.out) or directory containing TD_*.out (default: current directory).",
+        default=None,
+        help="ORCA output (any filename) or directory containing TD_*.out (default: current directory).",
     )
+
+    parser.add_argument(
+        "--file",
+        dest="single_file",
+        metavar="FILE",
+        help="Process exactly one ORCA output, with any filename, without ensemble averaging.",
+    )
+
+    parser.add_argument("--interactive", action="store_true", help="Ask for input mode and spectrum settings interactively.")
 
     # modo de representación
     parser.add_argument(
@@ -181,10 +259,15 @@ def main():
         "--export",
         default=False,
         action="store_true",
-        help="(Single-file mode) Export epsilon as espectro_*.dat (lambda) or espectroE_*.dat (energy).",
+        help="Compatibility option; single-file mode always exports electronic_spectrum/spectrum.dat.",
     )
 
     args = parser.parse_args()
+
+    if args.interactive:
+        if args.single_file is not None or args.filename is not None:
+            parser.error("--interactive cannot be combined with an input target.")
+        prompt_spectrum_options(args)
 
     # --- defaults "suaves" ---
     # Si no se dio -x0/-x1, usar 200–1000 nm
@@ -194,14 +277,23 @@ def main():
         args.endx = 1000.0
 
     # Si el usuario no puso -s/--show, activamos show por defecto
-    if not any(a in ("-s", "--show") for a in sys.argv[1:]):
+    if not args.interactive and not any(a in ("-s", "--show") for a in sys.argv[1:]):
         args.show = True
 
     if args.linewidth_ev <= 0:
         print("Line width (--linewidth_ev) must be > 0.")
         sys.exit(1)
 
-    target = args.filename
+    if args.single_file is not None and args.filename is not None:
+        parser.error("Use either --file FILE or a positional target, not both.")
+
+    target = args.single_file if args.single_file is not None else args.filename
+    if target is None:
+        target = "."
+    if args.single_file is not None and not os.path.isfile(target):
+        parser.error(f"--file requires an existing regular file: {target}")
+    if not os.path.exists(target):
+        parser.error(f"Target does not exist: {target}")
 
     if os.path.isdir(target):
         process_folder(target, args)

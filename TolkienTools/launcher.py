@@ -206,6 +206,8 @@ def is_requirements_choice(choice: str) -> bool:
 
 def prompt_extra_args(tool: Tool) -> list[str]:
     args = list(tool.default_args)
+    if tool.name == "TD-DFT spectra":
+        args.append("--interactive")
 
     return args
 

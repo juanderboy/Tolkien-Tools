@@ -8,7 +8,6 @@ write exports, peak information and plots.
 
 import math
 import os
-import re
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -21,7 +20,7 @@ from td_spectrum import compute_epsilon_spectrum
 
 def process_single_file(filename, args):
     """
-    Modo archivo único: procesa un solo TD_*.out y opcionalmente exporta espectro_*.dat.
+    Modo archivo único: procesa un solo output ORCA y opcionalmente exporta espectro_*.dat.
     """
     energies_eV, foscs = parse_orca_tddft_eV_fosc(filename)
     if energies_eV.size == 0 or foscs.size == 0:
@@ -57,7 +56,7 @@ def process_single_file(filename, args):
         eps_plot = eps_sorted[mask]
 
         x_label = r"$\lambda$ / nm"
-        title = "Absorption spectrum (NEA, λ-representation)"
+        title = "TD-DFT absorption spectrum (λ-representation)"
 
     else:  # mode == "energy"
         x_sorted = E_grid   # ya ascendente
@@ -77,9 +76,9 @@ def process_single_file(filename, args):
         x_plot = x_sorted[mask]
         eps_plot = eps_sorted[mask]
 
-        x_min, x_max = x_plot.min(), x_plot.max()
+        x_min, x_max = E_min, E_max
         x_label = r"E / eV"
-        title = "Absorption spectrum (NEA, energy representation)"
+        title = "TD-DFT absorption spectrum (energy representation)"
 
     if x_plot.size == 0:
         print(
@@ -115,7 +114,6 @@ def process_single_file(filename, args):
         linefmt="grey",
         markerfmt=" ",
         basefmt=" ",
-        use_line_collection=True,
     )
 
     # detección de picos
@@ -148,35 +146,23 @@ def process_single_file(filename, args):
     ax.grid(False)
     fig.tight_layout()
 
+    output_dir = os.path.join(os.getcwd(), "electronic_spectrum")
+    os.makedirs(output_dir, exist_ok=True)
+
     # guardar PNG
     if not args.nosave:
-        out_png = filename + "-nea-eps.png"
+        out_png = os.path.join(output_dir, "spectrum.png")
         fig.savefig(out_png, dpi=300)
         print(f"Spectrum saved to: {out_png}")
 
-    # exportar datos ε como espectro_*.dat (λ) o espectroE_*.dat (E)
-    if args.export:
-        base = os.path.basename(filename)        # "TD_10.out"
-        match = re.search(r"TD_(\d+)", base)
-        if match:
-            idx = match.group(1)
-            if mode == "lambda":
-                out_dat = f"espectro_{idx}.dat"
-                header = "lambda_nm  epsilon_Lmol-1cm-1"
-            else:
-                out_dat = f"espectroE_{idx}.dat"
-                header = "energy_eV  epsilon_Lmol-1cm-1"
-        else:
-            if mode == "lambda":
-                out_dat = "espectro.dat"
-                header = "lambda_nm  epsilon_Lmol-1cm-1"
-            else:
-                out_dat = "espectroE.dat"
-                header = "energy_eV  epsilon_Lmol-1cm-1"
-
-        data = np.column_stack([x_plot, eps_plot])
-        np.savetxt(out_dat, data, header=header)
-        print(f"Data exported to: {out_dat}")
+    # Always export wavelength/epsilon, even when plotting against energy.
+    wavelengths = x_plot if mode == "lambda" else HC_EV_NM / x_plot
+    order = np.argsort(wavelengths)
+    data = np.column_stack([wavelengths[order], eps_plot[order]])
+    out_dat = os.path.join(output_dir, "spectrum.dat")
+    np.savetxt(out_dat, data, header="lambda_nm  epsilon_Lmol-1cm-1")
+    print(f"Data exported to: {out_dat}")
 
     if args.show:
         plt.show()
+    plt.close(fig)
